@@ -1,0 +1,12 @@
+[
+  {
+    "repo_id": "banknote_binding_iteration_1",
+    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/banknote_binding_iteration_1",
+    "source": "demo"
+  },
+  {
+    "repo_id": "local/banknote_round_0",
+    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_0",
+    "source": "rollout"
+  }
+]

@@ -1,0 +1,167 @@
+Windows 工控机 + H200 Ubuntu：RLT 简明操作步骤
+============================================================
+
+按步骤复制命令即可。每段都会标明执行位置，不需要定义任何函数。
+准备三个终端：A = H200推理服务，B = Windows采集，C = H200训练。
+H200终端可以用现有SSH工具打开；若从PowerShell连接，执行：
+
+ssh -p 2222 baiyuntian@10.61.5.3
+
+SSH账号为baiyuntian，端口2222。登录后，该终端执行的是Ubuntu Bash命令。
+工控机代码目录：D:\byt\Evo-RLT-rtc。
+新采集数据默认保存到D:\byt\rlt_datasets；H200模型和数据路径沿用原设置。
+
+一、更新环境（只做一次）
+------------------------------------------------------------
+先将这次代码同步到两台机器，包括configs/rlt目录及其中的calibration子目录。
+沿用现有RTC环境；evo-rl如果不是实际环境名，请替换。
+
+【Windows PowerShell】
+cd D:\byt\Evo-RLT-rtc
+conda activate evo-rl
+python -m pip install -e . --no-deps
+python -m pip install "grpcio==1.73.1" "protobuf>=6.31.1,<6.32.0"
+
+【H200 Ubuntu】
+cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
+conda activate evo-rl
+python -m pip install -e ".[pi,async]"
+
+这是已有环境的更新步骤。全新Windows环境的安装方法见requirements-windows-client.txt。
+
+二、Windows：核对已填写的硬件配置
+------------------------------------------------------------
+下列硬件映射已经写入configs/rlt/windows_record.json，按现有接线使用：
+
+【Windows PowerShell，终端B】
+cd D:\byt\Evo-RLT-rtc
+conda activate evo-rl
+$env:PYTHONPATH = "$PWD/src"
+notepad .\configs\rlt\windows_record.json
+
+已配置的机械臂：
+左臂：COM24，USB序列号5C4C126082，标定文件bimanual_follower_left.json，键前缀left_。
+右臂：COM28，USB序列号5C82109251，标定文件bimanual_follower_right.json，键前缀right_。
+每臂6个关节：shoulder_pan、shoulder_lift、elbow_flex、wrist_flex、wrist_roll、gripper。
+串口实际按COM号连接；USB序列号用于核对左右设备，可用python -m serial.tools.list_ports -v查看。
+
+已配置的三台相机：
+left_arm_config.cameras.fixed：D405，序列号260322278758 → left_fixed。
+left_arm_config.cameras.wrist：icspring左腕，DSHOW索引1 → left_wrist。
+right_arm_config.cameras.wrist：icspring右腕，DSHOW索引0 → right_wrist。
+
+其余设置：
+- calibration_dir已设为configs/rlt/calibration；id保持bimanual_follower。
+- server_address：H200的IP和8090端口；policy_device=cuda:7指H200上的GPU。
+- dataset.root：Windows保存数据的位置；模型路径仍填写H200上的路径。
+
+相机键、左右顺序、任务文本和归一化方式沿用原ACP+RTC配置。
+示例每轮20条，30fps，H=50、d=21。保存JSON为UTF-8，不要加注释或末尾多余逗号。
+
+标定文件已经从E:\ABYT\RTC\标定文件原样复制到本项目的configs/rlt/calibration：
+- bimanual_follower_left.json：左臂COM24，USB序列号5C4C126082。
+- bimanual_follower_right.json：右臂COM28，USB序列号5C82109251。
+标定参数保持原样；USB序列号是硬件对应关系，实际仍按COM号连接。
+在工控机上对应D:\byt\Evo-RLT-rtc\configs\rlt\calibration目录。
+同步时把这个目录也带过去，并从D:\byt\Evo-RLT-rtc根目录执行采集命令。
+可以先在Windows终端查看文件是否已同步：
+dir .\configs\rlt\calibration
+
+三、H200：启动推理服务，保持运行
+------------------------------------------------------------
+【H200 Ubuntu，终端A】
+cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
+conda activate evo-rl
+export PYTHONPATH="$PWD/src"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+unset CUDA_VISIBLE_DEVICES
+python -m lerobot.async_inference.policy_server --host=10.61.5.3 --port=8090 --fps=30 --inference_latency=0 --obs_queue_timeout=5
+
+四、Windows：采集第0轮，使用现有ACP+RTC模型
+------------------------------------------------------------
+【Windows PowerShell，终端B】
+python -m lerobot.scripts.lerobot_rlt_record --config_path=configs/rlt/windows_record.json
+
+在采集终端按s表示成功，按f表示失败，无需回车。超时默认失败，Esc结束采集。
+抓空、只放入部分钞票都按f。示例未接主臂，重置阶段需要操作员复位。
+等采集退出、视频保存完毕后，再上传整个数据目录。
+
+五、上传第0轮数据
+------------------------------------------------------------
+先在H200创建接收目录，再回Windows上传。
+
+【H200 Ubuntu，终端C】
+mkdir -p /nfs/baiyuntian/assets/datasets
+
+【Windows PowerShell，终端B】
+scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/datasets/
+
+六、H200：编码缓存 → 训练token → 训练actor-critic
+------------------------------------------------------------
+【H200 Ubuntu，终端C】
+cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
+conda activate evo-rl
+export PYTHONPATH="$PWD/src"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=5
+BASE=/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model
+RLT=/nfs/baiyuntian/assets/models/banknote_rlt
+TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
+
+GPU5用于训练，GPU7用于推理，按实际空闲GPU调整。
+configs/rlt/initial.json已经列好原示教数据和第0轮数据，请核对其中的H200路径。
+旧数据必须有真实episode_success标签；缺失时按rlt_run.txt补标签后再运行。
+以下三个命令依次执行，上一步成功后再运行下一步：
+
+1. 编码缓存：
+python -m lerobot.scripts.lerobot_rlt_train cache --base-policy "$BASE" --dataset-spec configs/rlt/initial.json --output "$RLT/cache_initial" --chunk-size 50 --rtc-delay 21 --task "$TASK" --device cuda
+
+2. 训练RL token：
+python -m lerobot.scripts.lerobot_rlt_train token --cache "$RLT/cache_initial" --output "$RLT/token" --steps 5000 --device cuda
+
+3. 训练第一轮actor-critic：
+python -m lerobot.scripts.lerobot_rlt_train ac --cache "$RLT/cache_initial" --token-checkpoint "$RLT/token/token.pt" --output "$RLT/round_1" --steps 5000 --residual-scale 0.1 --device cuda
+
+其他参数沿用脚本默认值，与原详细命令一致。
+训练结果是/nfs/baiyuntian/assets/models/banknote_rlt/round_1，不要再追加pretrained_model。
+
+七、Windows：换成round_1，再采集20条
+------------------------------------------------------------
+【Windows PowerShell，终端B】
+notepad .\configs\rlt\windows_record.json
+
+这次只修改四项，机械臂和相机配置不动：
+dataset.repo_id → local/banknote_round_1
+dataset.root → D:/byt/rlt_datasets/banknote_round_1
+remote_policy.policy_type → rlt
+remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/banknote_rlt/round_1
+
+保存后，执行同一条采集命令。确认旧采集已退出，终端A的服务仍在运行：
+python -m lerobot.scripts.lerobot_rlt_record --config_path=configs/rlt/windows_record.json
+
+采集完成后上传：
+scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_1 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/datasets/
+
+八、H200：加入新数据，训练round_2
+------------------------------------------------------------
+【H200 Ubuntu，继续使用终端C】
+如果新开了训练终端，先重新执行第六节的环境与BASE/RLT/TASK变量设置。
+
+1. 只编码新增的第1轮数据，BASE始终是原ACP+RTC模型：
+python -m lerobot.scripts.lerobot_rlt_train cache --base-policy "$BASE" --dataset-spec configs/rlt/round_1.json --output "$RLT/cache_round_1" --chunk-size 50 --rtc-delay 21 --task "$TASK" --device cuda
+
+2. 用累计数据继续训练actor-critic：
+python -m lerobot.scripts.lerobot_rlt_train ac --policy "$RLT/round_1" --resume --cache "$RLT/cache_initial" --cache "$RLT/cache_round_1" --output "$RLT/round_2" --steps 5000 --device cuda
+
+之后重复第七、八节：用round_2采集新数据，再训练round_3。
+每轮用新的数据目录、repo_id和cache目录；复制round_1.json并修改其中轮次。
+训练命令中保留全部历史--cache，新增本轮cache；token不用每轮重训。
+比较每轮无人干预成功率、抓空次数和部分入机次数，人工救回不算自主成功。
+
+补充
+------------------------------------------------------------
+- 中断恢复、人工接管、补标签等详细说明见rlt_run.txt。
+- 只检查采集入口、不连接机械臂：python -m lerobot.scripts.lerobot_rlt_record --help
+- 查Windows串口：python -m serial.tools.list_ports -v
+- 查相机并保存预览：python -m lerobot.scripts.lerobot_find_cameras --record-time-s 1
+  此探测默认用ANY后端；采集已固定DSHOW左1右0，不能用ANY的编号直接替换。

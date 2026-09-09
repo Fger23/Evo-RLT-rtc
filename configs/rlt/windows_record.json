@@ -1,0 +1,72 @@
+{
+  "robot": {
+    "type": "bi_so_follower",
+    "id": "bimanual_follower",
+    "calibration_dir": "configs/rlt/calibration",
+    "left_arm_config": {
+      "port": "COM24",
+      "cameras": {
+        "fixed": {
+          "type": "intelrealsense",
+          "serial_number_or_name": "260322278758",
+          "width": 640,
+          "height": 480,
+          "fps": 30
+        },
+        "wrist": {
+          "type": "opencv",
+          "index_or_path": 1,
+          "backend": "DSHOW",
+          "width": 640,
+          "height": 480,
+          "fps": 30,
+          "fourcc": "MJPG"
+        }
+      }
+    },
+    "right_arm_config": {
+      "port": "COM28",
+      "cameras": {
+        "wrist": {
+          "type": "opencv",
+          "index_or_path": 0,
+          "backend": "DSHOW",
+          "width": 640,
+          "height": 480,
+          "fps": 30,
+          "fourcc": "MJPG"
+        }
+      }
+    }
+  },
+  "dataset": {
+    "repo_id": "local/banknote_round_0",
+    "root": "D:/byt/rlt_datasets/banknote_round_0",
+    "single_task": "Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine.",
+    "fps": 30,
+    "num_episodes": 20,
+    "episode_time_s": 120,
+    "reset_time_s": 30,
+    "push_to_hub": false,
+    "vcodec": "h264",
+    "num_image_writer_processes": 0,
+    "num_image_writer_threads_per_camera": 4
+  },
+  "remote_policy": {
+    "enable": true,
+    "training_time_rtc": true,
+    "policy_type": "pi05",
+    "pretrained_name_or_path": "/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model",
+    "server_address": "10.61.5.3:8090",
+    "policy_device": "cuda:7",
+    "actions_per_chunk": 50,
+    "rtc_prefix_steps": 21,
+    "chunk_size_threshold": 0.7,
+    "aggregate_fn_name": "latest_only",
+    "rpc_timeout_s": 30,
+    "setup_timeout_s": 600,
+    "queue_wait_timeout_s": 60,
+    "max_consecutive_late_chunks": 3
+  },
+  "play_sounds": false
+}

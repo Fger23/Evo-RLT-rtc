@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+logs/
+data/
+datasets/
+checkpoints/
+*.pkl
+*.mp4
+*.avi
+*.bag
+*.db3
+.env
+*.key
+*.pem

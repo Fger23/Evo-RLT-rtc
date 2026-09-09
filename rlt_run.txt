@@ -1,0 +1,315 @@
+ACP + 训练版 RTC + RLT：点钞/扎钞任务运行步骤（Linux / Bash）
+================================================================
+
+本文件配合当前代码库使用。已有 ACP 数据、价值网络、ACP+RTC 策略可继续使用，
+无需重新采集 ACP 数据，也无需重新执行 run.txt 中的 ACP 训练。
+
+当前实际部署是 Windows 工控机客户端 + H200 Ubuntu 服务端，请按 windows_go.txt
+执行完整流程：Windows 本机控制/录制，数据上传 H200 后编码和训练。本文保留
+H200 的 Bash 命令及 Linux 客户端示例；Linux 机器人侧命令不适用于 Windows 工控机。
+Windows代码目录为D:\byt\Evo-RLT-rtc；COM24/COM28、D405序列号260322278758、
+DSHOW左腕1/右腕0的实际配置见configs/rlt/windows_record.json。
+
+实现参考：https://github.com/MINT-SJTU/Evo-RLT
+对照版本：474c66958cffead65cbbf314ff85d0b85ef5f02f
+采用 RL token 表征 + 参考动作条件 actor + 双 critic 的思路；针对本库使用冻结的
+PI0.5、池化 token、小幅残差 actor，以及完整动作块的训练版 RTC 接口。
+这不是上游模型文件的直接兼容层，不应将上游 rlt_ac checkpoint 当作本库 rlt 加载。
+
+重要约定：
+1. ACP+RTC checkpoint 是固定基础策略，整个 RLT 迭代期间保持不变。
+2. 使用其原始相机顺序、动作顺序、预处理和归一化统计；不要用新 rollout 重算替换。
+3. 继续使用当前任务文本。下面沿用 RTC_run.txt 中的 banknote binding machine 文本。
+4. 当前 H=50、部署前缀 d=21、基础模型训练上限 D=37。RLT 只修改前缀之后的动作。
+   不直接照搬上游 chunk_length=10：10 小于本部署的 21 步前缀。
+5. RLT 的任务奖励来自 episode_success=success/failure；acp_indicator 不是任务奖励。
+6. 成功必须由实际完成任务判断。右臂抓空、钞票仅部分进入机器均标记失败。
+   人工救回的成功轨迹可以用于训练，但不能计入无人干预成功率。
+7. rollout 后训练是离线分轮执行的；机器人端收集，H200 端训练。更新模型前结束
+   当前采集，重新连接新的 checkpoint。代码不会自行启动机器人或自动提升成功率。
+
+一、准备环境（两端使用相同版本代码）
+----------------------------------------------------------------
+# 在 H200 和机器人上分别进入当前代码库路径。示例路径沿用 RTC_run.txt，按实际修改。
+# H200:
+cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate evo-rl
+pip install -e ".[pi,async]"
+
+# 机器人:
+cd ~/code/Evo-RL
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate evo-rl
+pip install -e ".[async,feetech,intelrealsense]"
+
+# 不要安装上游 Evo-RLT 的 [lerobot] extra；它会切换 LeRobot 版本。
+# 下列每个终端都应处于本库根目录，并设置：
+export PYTHONPATH="$PWD/src"
+export TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
+export BASE_POLICY="/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model"
+export RTC_SERVER_IP="10.61.5.3"
+export RLT_ROOT="/nfs/baiyuntian/assets/models/banknote_rlt"
+
+# BASE_POLICY 在 H200 上必须可访问且包含 config.json / model.safetensors /
+# policy_preprocessor.json / policy_postprocessor.json 与对应 processor 统计文件。
+# BASE_POLICY 路径会保存在 RLT checkpoint 中，部署服务器仍需能访问该目录。
+
+二、启动 H200 推理服务（单独终端，保持运行）
+----------------------------------------------------------------
+cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate evo-rl
+export PYTHONPATH="$PWD/src"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+unset CUDA_VISIBLE_DEVICES
+python -m lerobot.async_inference.policy_server \
+  --host=10.61.5.3 --port=8090 --fps=30 --inference_latency=0 --obs_queue_timeout=5
+
+# 一个服务只连接一个机器人客户端。沿用 RTC_run.txt 的专网、串口身份和校准检查。
+# 训练脚本另开终端使用其他空闲 GPU，或者停止服务后再训练，避免显存冲突。
+
+三、round 0：用现有 ACP+RTC 采集真实 rollout
+----------------------------------------------------------------
+# 在机器人终端，先执行第一节的 export。替换为经过核对的左右臂稳定设备路径。
+export LEFT_ARM_PORT="/dev/ttyACM0"
+export RIGHT_ARM_PORT="/dev/ttyACM1"
+export ROUND=0
+export ROLLOUT_ROOT="$HOME/rlt_datasets/banknote_round_${ROUND}"
+export ROLLOUT_POLICY="$BASE_POLICY"  # 此路径由服务端解析
+export POLICY_TYPE=pi05
+
+# 定义一次，每轮执行相同的采集函数；每轮用新的数据目录和 repo_id。
+# reset_time_s 是人工重摆钞票与机器人复位的时间，请按现场操作速度调整。
+collect_rlt_round() {
+  python -m lerobot.scripts.lerobot_rlt_record \
+    --robot.type=bi_so_follower \
+    --robot.id=bimanual_follower \
+    --robot.left_arm_config.port="$LEFT_ARM_PORT" \
+    --robot.right_arm_config.port="$RIGHT_ARM_PORT" \
+    --robot.left_arm_config.cameras='{
+      fixed: {"type": "intelrealsense", "serial_number_or_name": "260322278758", "width": 640, "height": 480, "fps": 30},
+      wrist: {"type": "opencv", "index_or_path": "/dev/v4l/by-path/pci-0000:c6:00.3-usb-0:2:1.0-video-index0", "width": 640, "height": 480, "fps": 30, "fourcc": "MJPG"}
+    }' \
+    --robot.right_arm_config.cameras='{
+      wrist: {"type": "opencv", "index_or_path": "/dev/v4l/by-path/pci-0000:c6:00.3-usb-0:1:1.0-video-index0", "width": 640, "height": 480, "fps": 30, "fourcc": "MJPG"}
+    }' \
+    --dataset.repo_id="local/banknote_round_${ROUND}" \
+    --dataset.root="$ROLLOUT_ROOT" \
+    --dataset.single_task="$TASK" \
+    --dataset.fps=30 \
+    --dataset.num_episodes=20 \
+    --dataset.episode_time_s=120 \
+    --dataset.reset_time_s=30 \
+    --dataset.push_to_hub=false \
+    --dataset.vcodec=h264 \
+    --remote_policy.enable=true \
+    --remote_policy.policy_type="$POLICY_TYPE" \
+    --remote_policy.pretrained_name_or_path="$ROLLOUT_POLICY" \
+    --remote_policy.server_address="$RTC_SERVER_IP:8090" \
+    --remote_policy.policy_device=cuda:7 \
+    --remote_policy.training_time_rtc=true \
+    --remote_policy.actions_per_chunk=50 \
+    --remote_policy.rtc_prefix_steps=21 \
+    --remote_policy.chunk_size_threshold=0.7 \
+    --remote_policy.aggregate_fn_name=latest_only \
+    --remote_policy.rpc_timeout_s=30 \
+    --remote_policy.setup_timeout_s=600 \
+    --remote_policy.queue_wait_timeout_s=60 \
+    --remote_policy.max_consecutive_late_chunks=3 \
+    "$@"
+}
+collect_rlt_round
+
+# 操作：s = 成功并结束本条；f = 失败并结束本条；超时默认失败。
+# 按键需要机器人端有可用的键盘监听环境。不要无标注地在后台采集全部数据。
+# 本入口不自动执行 human-inloop-record 的回零动作，重置期间由操作员复位。
+# 不接teleop时reset阶段只等待；它不会把机械臂自动搬回初始姿态。
+# 需要人工接管时，使用已经完成校准的双主臂，向函数额外传入：
+# collect_rlt_round \
+#   --teleop.type=bi_so_leader \
+#   --teleop.id=bimanual_leader \
+#   --teleop.left_arm_config.port=/dev/serial/by-id/<实际左主臂> \
+#   --teleop.right_arm_config.port=/dev/serial/by-id/<实际右主臂>
+# 存在 teleop 时 i 切换接管；接管期间暂停策略请求，释放后清空旧动作并重新启动。
+# 两端自动核对 RTC 前缀和动作维度；实际延迟超出 d 的返回会被丢弃。
+# 连续迟到/实际发送动作与计划不同会停止本次控制，先处理日志原因再继续采集。
+
+# 每次采集正常结束后完整同步目录到 H200（含 meta/、data/、videos/），不要只复制 parquet。
+# 可用自己已有的数据同步方式；后续 manifest 中 root 必须是 H200 的路径。
+
+四、构建缓存、训练 RL token 与 actor-critic
+----------------------------------------------------------------
+# H200 新终端，执行第一节环境和 export。GPU编号按空闲设备修改。
+# 下面假设 round 0 已完整同步到 /nfs/baiyuntian/assets/datasets/banknote_round_0。
+mkdir -p "$RLT_ROOT/specs"
+cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
+[
+  {
+    "repo_id": "banknote_binding_iteration_1",
+    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/banknote_binding_iteration_1",
+    "source": "demo"
+  },
+  {
+    "repo_id": "local/banknote_round_0",
+    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_0",
+    "source": "rollout"
+  }
+]
+JSON
+
+# source=demo 用于原有示教数据；source=rollout 用于策略采集（可含人工干预）。
+# 初始数据如包含既往策略rollout，按实际来源区分；一个manifest不能重复repo_id。
+# 同一repo混合来源时，分别建立两个spec/cache，以互不重叠的episodes数组选择子集，
+# 分别设置source；训练时同时加载两个cache。
+# 不必将原始数据目录物理合并，也不必对新数据重新计算ACP指标。
+# 默认读取meta中的episode_success；缺失标签会在加载大模型之前报错。
+# 旧数据确实没有episode_success时，在对应项增加 "success_labels":"labels.json"，
+# 文件格式为 {"0":"success", "1":"failure", ...}，按实际结果逐条补标，不能全设成功。
+# 也可添加 "episodes":[0,1,2] 选定子集；切勿把同一episode重复放入多个cache。
+
+# 4.1 冻结PI0.5重编码缓存。该阶段需要能容纳基础PI0.5的GPU。
+CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train cache \
+  --base-policy "$BASE_POLICY" \
+  --dataset-spec "$RLT_ROOT/specs/initial.json" \
+  --output "$RLT_ROOT/cache_initial" \
+  --chunk-size 50 --rtc-delay 21 \
+  --token-pool-size 32 --gamma 0.995 --validation-fraction 0.1 \
+  --task "$TASK" --device cuda --video-backend pyav --tolerance-s 0.04
+
+# tokenizer若需离线加载，额外加 --tokenizer-path /实际/paligemma/tokenizer目录。
+# 后续每个cache命令必须使用相同task、tokenizer、H、d、gamma、pool、seed和基础checkpoint。
+# 示教、rollout、推理服务和机器人均应保持30fps；缓存会拒绝混合不同fps的数据。
+# 缓存按episode保存，manifest.json的complete=true才可训练。
+# 缓存中断后，在同一条cache命令尾部添加 --resume 继续；不要改dataset-spec内容。
+# 缓存中的actions是真实记录动作，ref_actions是基础策略的独立参考动作。
+# t的下一状态严格取t+k；末段padding不产生奖励、Q输入或BC损失。
+# 旧数据的参考动作是离线重编码近似，不是恢复历史异步请求的原始参考输出。
+
+# 4.2 训练一次RL token。此阶段只读取缓存，无需加载PI0.5。
+CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train token \
+  --cache "$RLT_ROOT/cache_initial" \
+  --output "$RLT_ROOT/token" \
+  --steps 5000 --batch-size 64 --demo-ratio 0.5 \
+  --log-every 100 --save-every 1000 --device cuda
+
+# 输出：token/token.pt、token/training_manifest.json、token/token_train_state.pt。
+# 后续actor-critic迭代冻结这个token。不要每一轮重训token后直接沿用旧critic。
+
+# 4.3 第一轮actor-critic。先使用保守的小幅动作修正。
+CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train ac \
+  --cache "$RLT_ROOT/cache_initial" \
+  --token-checkpoint "$RLT_ROOT/token/token.pt" \
+  --output "$RLT_ROOT/round_1" \
+  --steps 5000 --batch-size 64 --demo-ratio 0.5 \
+  --actor-lr 0.0001 --critic-lr 0.0003 \
+  --demo-bc-weight 5 --reference-bc-weight 1 --residual-scale 0.1 \
+  --policy-delay 2 --tau 0.005 --target-noise 0.02 \
+  --log-every 100 --save-every 1000 --device cuda
+
+# 输出目录round_1本身就是部署checkpoint，含config.json/rlt_model.pt。
+# 不要在此路径后追加pretrained_model（这点与旧PI05导出目录不同）。
+# trainer_state.pt保存优化器及target网络；training_manifest.json记录缓存与上一轮模型。
+# actor_ready=true且token_ready=true才允许部署，token-only模型会被拒绝。
+# actor residual_scale=.1指归一化坐标的最大修正幅度，不是关节角度单位。
+# target-noise仅用于TD训练目标平滑；默认部署不随机探索。
+# BC将成功示教与成功episode中的人工接管动作作为监督，失败也保留用于critic。
+
+五、评估round 1，并收集下一轮数据
+----------------------------------------------------------------
+# 机器人终端，结束旧客户端后，复用第三节的collect_rlt_round函数：
+export ROUND=1
+export ROLLOUT_ROOT="$HOME/rlt_datasets/banknote_round_${ROUND}"
+export POLICY_TYPE=rlt
+export ROLLOUT_POLICY="$RLT_ROOT/round_1"  # H200路径；两端RLT_ROOT需一致
+collect_rlt_round
+
+# 若服务使用旧模型未释放显存，可以先重启第二节的policy_server。
+# 更换checkpoint后重新启动客户端，它会重建服务端策略和清空所有动作队列。
+# RLT请求会校验d必须等于训练时的21且动作块必须完整50步。
+# 队列不足21步时，RLT会执行完现有队列，再以d=0启动；可能出现短暂停顿。
+
+# 初始建议每轮20~30条（示例20），成功、失败、抓空和部分入机均保留。
+# 首先进行同条件、无人工接管的评估；若需要救回示范，另开HIL采集批次。
+# 每轮记录下列计数，建议固定初始钞票数量、摆放范围、相机和fps：
+# round | episodes | autonomous_success | right_grasp_empty | incomplete_insertion | interventions
+# 初始模型round0的无干预成功率作为比较基线；不要将训练loss下降当作成功率提升。
+# 某轮模型若成功率更低，继续使用上一轮较好的模型采集和部署，保留失败数据用于下一次训练。
+# 20条只是启动建议，样本较少时无法可靠判断小幅成功率差异。
+
+六、加入新rollout，继续actor-critic（round 2、3……）
+----------------------------------------------------------------
+# H200终端：先同步round1完整数据，再新增只包含新数据的manifest。
+cat > "$RLT_ROOT/specs/round_1.json" <<'JSON'
+[
+  {
+    "repo_id": "local/banknote_round_1",
+    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_1",
+    "source": "rollout"
+  }
+]
+JSON
+
+# 基础PI05仍然用BASE_POLICY；不要换成round_1 RLT模型。
+CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train cache \
+  --base-policy "$BASE_POLICY" \
+  --dataset-spec "$RLT_ROOT/specs/round_1.json" \
+  --output "$RLT_ROOT/cache_round_1" \
+  --chunk-size 50 --rtc-delay 21 \
+  --token-pool-size 32 --gamma 0.995 --validation-fraction 0.1 \
+  --task "$TASK" --device cuda --video-backend pyav --tolerance-s 0.04
+
+# 继续上一轮全部网络、优化器和target状态，steps表示本次额外执行的优化步数。
+CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train ac \
+  --policy "$RLT_ROOT/round_1" --resume \
+  --cache "$RLT_ROOT/cache_initial" \
+  --cache "$RLT_ROOT/cache_round_1" \
+  --output "$RLT_ROOT/round_2" \
+  --steps 5000 --batch-size 64 --demo-ratio 0.5 \
+  --actor-lr 0.0001 --critic-lr 0.0003 \
+  --demo-bc-weight 5 --reference-bc-weight 1 \
+  --policy-delay 2 --tau 0.005 --target-noise 0.02 \
+  --log-every 100 --save-every 1000 --device cuda
+
+# 若需要调整学习率/BC权重，去掉--resume，仍用--policy载入上轮权重，重建优化器/target。
+# 继续训练时不再指定--token-checkpoint或--residual-scale，防止破坏原模型坐标和修正界限。
+# round3：用选定模型采集round2 -> 单独cache_round_2 -> --policy选定模型 \
+#   --cache cache_initial --cache cache_round_1 --cache cache_round_2 -> --output round_3。
+# 不要每轮重复添加示教数据副本。缓存会检查重复episode，demo-ratio控制示教采样比例。
+# 不同回合通过稳定episode哈希分配验证集，旧episode不会因新增数据跳入另一个split。
+
+七、中断恢复、测试和常见问题
+----------------------------------------------------------------
+# 训练中断时，可从checkpoints/step_00001000等保存点恢复到新的输出目录：
+# python -m lerobot.scripts.lerobot_rlt_train ac \
+#   --policy "$RLT_ROOT/round_2/checkpoints/step_00001000" --resume \
+#   --cache "$RLT_ROOT/cache_initial" --cache "$RLT_ROOT/cache_round_1" \
+#   --output "$RLT_ROOT/round_2_resumed" --steps 4000 --device cuda
+# optimizer参数必须与该保存点一致；上例默认值与本文一致。
+# token中断同理：token --policy "$RLT_ROOT/token/checkpoints/step_00001000" --resume ...
+# 已有输出目录不覆盖，请用新的output。是否resume与采集dataset的--resume含义不同。
+
+# 无硬件单元/集成测试（在已安装本库依赖的环境）：
+pip install -e ".[test]"
+PYTHONPATH=src python -m pytest -q tests/policies/rlt tests/rl/rlt \
+  tests/scripts/test_recording_trained_rtc.py \
+  tests/async_inference/test_rlt_server_contract.py \
+  tests/async_inference/test_rlt_processor_contract.py
+
+# 仅查看参数，不加载模型或连接机器人：
+python -m lerobot.scripts.lerobot_rlt_train cache --help
+python -m lerobot.scripts.lerobot_rlt_train token --help
+python -m lerobot.scripts.lerobot_rlt_train ac --help
+
+# 常见问题：
+# - Missing episode_success：逐episode补任务结果；不要拿ACP indicator顶替。
+# - cache contract differs：确认固定base路径/权重/processor，以及H/d/gamma/task/tokenizer一致。
+# - Duplicate episode：同一cache或示教数据被重复列入，移除重复项。
+# - Missing camera features：检查相机键和原checkpoint一致，不能静默填黑图继续训练。
+# - RLT prefix mismatch：训练/采集/部署的d不一致；修改d后应重建cache并重新训练。
+# - late RTC response：检查网络、GPU负载和实测延迟，不要盲目增加d超过D=37。
+# - 动作仍抓空/部分入机：保留对应失败，补充该状态附近的成功人工修正；查看无干预评估。
+# - 长流程奖励太稀疏：本实现终点成功奖励1、失败0，gamma为每控制步折扣。
+#   若改gamma或改为独立短任务，需建立新的统一cache，不可混用旧contract。
+# - Windows测试机不能代替H200/实机：必须在现有PI05固定Transformers依赖环境完成实际试跑。
+#   本实现不会自动识别“接钞/入机”阶段，也没有把这两个事件伪造为自动奖励。
