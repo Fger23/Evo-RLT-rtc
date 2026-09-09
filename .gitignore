@@ -1,8 +1,9 @@
 __pycache__/
 *.pyc
+*.egg-info/
 logs/
 data/
-datasets/
+/datasets/
 checkpoints/
 *.pkl
 *.mp4
