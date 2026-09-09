@@ -59,7 +59,7 @@ right_arm_config.cameras.wrist：icspring右腕，DSHOW索引0 → right_wrist�
 
 其余设置：
 - calibration_dir已设为configs/rlt/calibration；id保持bimanual_follower。
-- server_address：H200的IP和8090端口；policy_device=cuda:7指H200上的GPU。
+- server_address：H200的IP和8090端口；推理服务只使用物理GPU6，policy_device=cuda:0对应这张卡。
 - dataset.root：Windows保存数据的位置；模型路径仍填写H200上的路径。
 
 相机键、左右顺序、任务文本和归一化方式沿用原ACP+RTC配置。
@@ -81,7 +81,7 @@ cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
 conda activate evo-rl
 export PYTHONPATH="$PWD/src"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-unset CUDA_VISIBLE_DEVICES
+export CUDA_VISIBLE_DEVICES=6
 python -m lerobot.async_inference.policy_server --host=10.61.5.3 --port=8090 --fps=30 --inference_latency=0 --obs_queue_timeout=5
 
 四、Windows：采集第0轮，使用现有ACP+RTC模型
@@ -115,7 +115,7 @@ BASE=/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_202
 RLT=/nfs/baiyuntian/assets/models/banknote_rlt
 TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
 
-GPU5用于训练，GPU7用于推理，按实际空闲GPU调整。
+GPU5用于训练，GPU6用于推理，按实际空闲GPU调整。
 configs/rlt/initial.json已经列好原示教数据和第0轮数据，请核对其中的H200路径。
 旧数据必须有真实episode_success标签；缺失时按rlt_run.txt补标签后再运行。
 以下三个命令依次执行，上一步成功后再运行下一步：
