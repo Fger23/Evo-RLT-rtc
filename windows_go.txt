@@ -17,11 +17,13 @@ SSH账号为baiyuntian，端口2222。登录后，该终端执行的是Ubuntu Ba
 Windows使用独立的rlt-client环境，H200继续使用原来的evo-rl环境。
 Windows创建环境时复制现有RTC环境，再在副本中安装客户端依赖。
 下面的conda create只执行一次；rlt-client已经创建好时，从conda activate开始。
+命令逐条执行；某条报错时先处理报错，再执行下一条。
 
 【Windows PowerShell】
 cd D:\byt\Evo-RLT-rtc
 conda create -n rlt-client --clone evo-rl -y
 conda activate rlt-client
+python -m pip uninstall -y transformers
 python -m pip install -r requirements-windows-client.txt
 python -m pip install -e . --no-deps
 
@@ -30,6 +32,7 @@ cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
 conda activate evo-rl
 python -m pip install -e ".[pi,async]"
 
+Windows只做远程采集，不需要Transformers；上面的卸载仅在rlt-client副本内执行。
 如果原RTC环境名称不是evo-rl，修改上面--clone后的名称。
 没有可复制的RTC环境时，全新Windows环境的安装方法见requirements-windows-client.txt。
 
