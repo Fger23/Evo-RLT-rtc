@@ -14,20 +14,24 @@ SSH账号为baiyuntian，端口2222。登录后，该终端执行的是Ubuntu Ba
 一、更新环境（只做一次）
 ------------------------------------------------------------
 先将这次代码同步到两台机器，包括configs/rlt目录及其中的calibration子目录。
-沿用现有RTC环境；evo-rl如果不是实际环境名，请替换。
+Windows使用独立的rlt-client环境，H200继续使用原来的evo-rl环境。
+Windows创建环境时复制现有RTC环境，再在副本中安装客户端依赖。
+下面的conda create只执行一次；rlt-client已经创建好时，从conda activate开始。
 
 【Windows PowerShell】
 cd D:\byt\Evo-RLT-rtc
-conda activate evo-rl
+conda create -n rlt-client --clone evo-rl -y
+conda activate rlt-client
+python -m pip install -r requirements-windows-client.txt
 python -m pip install -e . --no-deps
-python -m pip install "grpcio==1.73.1" "protobuf>=6.31.1,<6.32.0"
 
 【H200 Ubuntu】
 cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
 conda activate evo-rl
 python -m pip install -e ".[pi,async]"
 
-这是已有环境的更新步骤。全新Windows环境的安装方法见requirements-windows-client.txt。
+如果原RTC环境名称不是evo-rl，修改上面--clone后的名称。
+没有可复制的RTC环境时，全新Windows环境的安装方法见requirements-windows-client.txt。
 
 二、Windows：核对已填写的硬件配置
 ------------------------------------------------------------
@@ -35,7 +39,7 @@ python -m pip install -e ".[pi,async]"
 
 【Windows PowerShell，终端B】
 cd D:\byt\Evo-RLT-rtc
-conda activate evo-rl
+conda activate rlt-client
 $env:PYTHONPATH = "$PWD/src"
 notepad .\configs\rlt\windows_record.json
 
