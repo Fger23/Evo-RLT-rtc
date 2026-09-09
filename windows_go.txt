@@ -191,3 +191,149 @@ python -m lerobot.scripts.lerobot_rlt_train ac --policy "$RLT/round_1" --resume 
 - 查Windows串口：python -m serial.tools.list_ports -v
 - 查相机并保存预览：python -m lerobot.scripts.lerobot_find_cameras --record-time-s 1
   此探测默认用ANY后端；采集已固定DSHOW左1右0，不能用ANY的编号直接替换。
+
+
+九、完整闭环：全程从Windows PowerShell操作
+============================================================
+本节从采集开始，一直到远程训练完成并进入下一轮。按1至7顺序执行。
+每个命令块单独执行；报错先处理，不要跳到下一步。
+H200的8090推理服务须已启动，启动方式见第三节。
+以下命令不需要定义PowerShell函数，也不需要登录Ubuntu后手动输入训练命令。
+
+轮次对应关系（Round表示正在采集的数据轮次）：
+Round=0：原ACP+RTC模型 → banknote_round_0 → 训练得到round_1
+Round=1：round_1模型 → banknote_round_1 → 训练得到round_2
+Round=2：round_2模型 → banknote_round_2 → 训练得到round_3
+
+1. 设置当前轮次和GPU（在同一个PowerShell窗口中执行）
+------------------------------------------------------------
+cd D:\byt\Evo-RLT-rtc
+conda activate rlt-client
+$Round = 0
+$Episodes = 20
+$InferGpu = 7
+$TrainGpu = 5
+$ServerPython = '/home/baiyuntian/miniforge3/envs/evo-rl/bin/python'
+$ServerDataRoot = '/nfs/baiyuntian/assets/rlt_0909'
+$ModelRoot = '/nfs/baiyuntian/assets/models/banknote_rlt'
+$BasePolicy = '/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model'
+ssh -p 2222 baiyuntian@10.61.5.3 nvidia-smi
+
+InferGpu是推理用的物理卡号，TrainGpu是训练用的物理卡号，按实际占用修改。
+推理服务会保留已加载的模型，训练请选择其他空闲卡。
+第一次从Round=0开始；已有前几轮结果时，填写要继续采集的轮次。
+第7步会把Round加1，之后回到第2步，不要再次把Round设回0。
+
+2. 开始采集当前轮，自动对应数据目录和模型
+------------------------------------------------------------
+$LocalData = "D:/byt/rlt_datasets/banknote_round_$Round"
+$RemoteData = "$ServerDataRoot/banknote_round_$Round"
+if ($Round -eq 0) {
+    $PolicyType = 'pi05'
+    $PolicyPath = $BasePolicy
+} else {
+    $PolicyType = 'rlt'
+    $PolicyPath = "$ModelRoot/round_$Round"
+}
+Write-Host "采集轮次=$Round 模型=$PolicyPath 本地数据=$LocalData 服务器数据=$RemoteData"
+if (Test-Path -LiteralPath $LocalData) { throw "本轮目录已存在，请先核对已有数据：$LocalData" }
+python -m lerobot.scripts.lerobot_rlt_record `
+    --config_path=configs/rlt/windows_record.json `
+    --dataset.repo_id="local/banknote_round_$Round" `
+    --dataset.root="$LocalData" `
+    --remote_policy.policy_type="$PolicyType" `
+    --remote_policy.pretrained_name_or_path="$PolicyPath" `
+    --dataset.num_episodes=$Episodes `
+    --dataset.episode_time_s=120 `
+    --dataset.reset_time_s=30 `
+    --dataset.fps=30 `
+    --remote_policy.actions_per_chunk=50 `
+    --remote_policy.rtc_prefix_steps=21 `
+    --remote_policy.policy_device="cuda:$InferGpu"
+if ($LASTEXITCODE -ne 0) { throw '采集报错，请先检查采集日志' }
+
+在原来的7个采集参数之外，这里显式指定数据repo_id、保存目录、模型类型和模型路径，
+确保banknote_round_N确实由对应模型采集；机械臂、相机等继续读取JSON。
+执行后自动开始，不需要按开始键。PowerShell保持前台，英文输入法，轻按一次，无需回车：
+s：成功并结束本条；f：失败并结束本条；120秒超时默认失败。
+Esc：结束整次采集并收尾保存；当前条未标记时按失败处理。
+左方向键：丢弃误采的当前条并重采；真实失败请按f保留。
+进入Reset the environment后有30秒人工整理时间，当前配置不自动回零。
+整理好后可按右方向键提前结束等待；否则等待时间结束后自动进入下一条。
+20条是成功和失败的总数。等程序退出、视频保存完成后再执行第3步。
+H=50、d=21和30fps与后面的缓存/训练一致，进入这个闭环后保持一致。
+
+3. 验证采集完整性，生成上传校验文件
+------------------------------------------------------------
+python -m lerobot.scripts.lerobot_rlt_verify `
+    --root "$LocalData" `
+    --round $Round `
+    --expected-episodes $Episodes `
+    --expected-policy "$PolicyPath" `
+    --fps 30 `
+    --write-manifest
+if ($LASTEXITCODE -ne 0) { throw '数据完整性检查未通过，请处理报错后重新检查' }
+
+此检查核对：20条记录、连续帧索引、时间戳、12维观测/动作、成功/失败标签、采集模型身份；
+还会完整解码三路视频，核对各条视频的帧数、尺寸和时间范围。
+看到VERIFIED round=N episodes=20，说明检查通过；success与failure相加应等于20。
+这验证文件与记录结构，实际任务结果仍以人工s/f标注和视频复核为准。
+数据目录内会生成rlt_integrity.json，包含轮次、模型和每个数据/元信息/视频文件的SHA256。
+完整解码和计算校验值需要时间，请等待命令结束。
+
+4. 上传这一轮，再在H200验证传输完整性
+------------------------------------------------------------
+ssh -p 2222 baiyuntian@10.61.5.3 "mkdir -p $ServerDataRoot"
+if ($LASTEXITCODE -ne 0) { throw '服务器数据目录创建失败' }
+scp -P 2222 -r "$LocalData" "baiyuntian@10.61.5.3:$ServerDataRoot/"
+if ($LASTEXITCODE -ne 0) { throw '上传失败，请重新上传本轮完整目录' }
+ssh -p 2222 baiyuntian@10.61.5.3 "cd /home/baiyuntian/training-rtc/Evo-RLT-rtc && $ServerPython -m lerobot.scripts.lerobot_rlt_verify --root $RemoteData --round $Round --expected-episodes $Episodes --expected-policy $PolicyPath --fps 30 --check-manifest"
+if ($LASTEXITCODE -ne 0) { throw '服务器文件与本地不一致，先处理校验错误' }
+
+Windows：D:\byt\rlt_datasets\banknote_round_N
+H200：/nfs/baiyuntian/assets/rlt_0909/banknote_round_N
+必须上传整个目录，包括meta、data、videos和rlt_integrity.json。
+服务器会逐文件核对大小及SHA256，检测漏传、文件损坏和错误轮次。
+如果修改或补录了数据，先重新执行第3步，再上传并检查。
+
+5. 从Windows启动H200后台训练
+------------------------------------------------------------
+ssh -p 2222 baiyuntian@10.61.5.3 "$ServerPython -m lerobot.scripts.lerobot_rlt_round start --round $Round --gpu $TrainGpu --episodes $Episodes --token-steps 5000 --ac-steps 5000 --data-root $ServerDataRoot --model-root $ModelRoot"
+if ($LASTEXITCODE -ne 0) { throw '训练任务未启动，请查看以上报错' }
+
+看到STARTED和pid表示后台任务已启动，不代表训练完成。关闭SSH后训练仍继续。
+脚本会再次核对上传数据，然后依次执行：
+- Round=0：原示教数据+banknote_round_0编码到cache_initial → token训练5000步 → actor-critic训练5000步 → round_1。
+- Round>=1：只编码新增banknote_round_N到cache_round_N → 加载round_N及全部历史缓存 → 继续actor-critic训练5000步 → round_(N+1)。
+后续轮次沿用已训练的token；cache始终使用最初的ACP+RTC模型，H=50、d=21、30fps。
+首次原示教数据路径来自configs/rlt/initial.json中的source=demo项，必须有真实成功/失败标签。
+输入清单自动保存到模型目录下jobs/from_round_N/dataset_spec.json，无需每轮手改initial.json。
+训练GPU由--gpu选择，例如--gpu 5就是物理5号卡；只对后台训练进程设置单卡可见。
+同一轮重复启动、已有输出或缓存会被拒绝，以保留原数据和检查点。
+
+6. 查询训练状态和最近日志（可以多次执行）
+------------------------------------------------------------
+ssh -p 2222 baiyuntian@10.61.5.3 "$ServerPython -m lerobot.scripts.lerobot_rlt_round status --round $Round --model-root $ModelRoot --tail 30"
+
+状态含义：
+QUEUED / RUNNING：等待启动或正在运行，stage显示verify-upload、cache、token或actor-critic。
+DONE：所有阶段正常结束，最终checkpoint文件齐全，并且actor_ready、token_ready均为true。
+FAILED：数据校验或训练失败；查看error和最近日志，先修复再处理该轮恢复。
+NOT_STARTED：本轮还没有启动任务。
+不要仅凭GPU利用率为0、进程消失、某个中间checkpoint目录出现来判断完成。
+可另开PowerShell窗口查询；重新填写相同的Round、ServerPython和ModelRoot即可。
+完整日志位于：/nfs/baiyuntian/assets/models/banknote_rlt/jobs/from_round_N/train.log
+模型位于：/nfs/baiyuntian/assets/models/banknote_rlt/round_(N+1)
+失败后保留jobs日志及缓存/检查点，根据日志处理恢复；不要增加Round跳过失败轮次。
+
+7. 确认DONE后进入下一轮采集
+------------------------------------------------------------
+ssh -p 2222 baiyuntian@10.61.5.3 "$ServerPython -m lerobot.scripts.lerobot_rlt_round status --round $Round --model-root $ModelRoot --require-done --tail 0"
+if ($LASTEXITCODE -ne 0) { throw '训练尚未成功完成，先停在第6步查询和处理' }
+$Round = $Round + 1
+Write-Host "下一轮采集：banknote_round_$Round，使用模型 $ModelRoot/round_$Round"
+
+现在回到第2步，重新执行第2至第7步。第2步会更新LocalData、RemoteData、PolicyType和PolicyPath。
+例如第一次完成后Round=1，自动使用round_1模型，把新数据写入banknote_round_1；
+上传并训练完成后得到round_2，再继续Round=2。
+推理服务在新采集连接时加载命令指定的模型；等待加载完成后才会开始采集。
