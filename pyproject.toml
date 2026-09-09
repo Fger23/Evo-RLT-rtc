@@ -136,7 +136,9 @@ wallx = [
     "qwen_vl_utils==0.0.11"
 ]
 # Keep the custom AdaRMSNorm API used by PI0/PI0.5 reproducible; do not replace this with a moving branch.
-pi = ["transformers @ git+https://github.com/huggingface/transformers.git@dcddb970176382c0fcf4521b0c0e6fc15894dfe0", "scipy>=1.10.1,<1.15"]
+# GitHub archive avoids a large Git clone on GPU servers while pinning the exact
+# Transformers revision required by the custom PI0/PI0.5 AdaRMSNorm implementation.
+pi = ["transformers @ https://codeload.github.com/huggingface/transformers/tar.gz/dcddb970176382c0fcf4521b0c0e6fc15894dfe0", "scipy>=1.10.1,<1.15"]
 smolvla = ["lerobot[transformers-dep]", "num2words>=0.5.14,<0.6.0", "accelerate>=1.7.0,<2.0.0", "safetensors>=0.4.3,<1.0.0"]
 groot = [
     "lerobot[transformers-dep]",
