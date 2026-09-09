@@ -199,6 +199,8 @@ python -m lerobot.scripts.lerobot_rlt_train ac --policy "$RLT/round_1" --resume 
 每个命令块单独执行；报错先处理，不要跳到下一步。
 H200的8090推理服务须已启动，启动方式见第三节。
 以下命令不需要定义PowerShell函数，也不需要登录Ubuntu后手动输入训练命令。
+工控机目前未配置到H200的免密SSH；ssh/scp提示密码时，输入H200上baiyuntian账号的密码。
+密码输入时不会显示字符，输入完按回车；这与Windows登录密码无关。
 
 轮次对应关系（Round表示正在采集的数据轮次）：
 Round=0：原ACP+RTC模型 → banknote_round_0 → 训练得到round_1
