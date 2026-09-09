@@ -6,7 +6,7 @@
   },
   {
     "repo_id": "local/banknote_round_0",
-    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_0",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_0",
     "source": "rollout"
   }
 ]

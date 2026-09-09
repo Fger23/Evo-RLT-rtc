@@ -141,7 +141,7 @@ collect_rlt_round
 四、构建缓存、训练 RL token 与 actor-critic
 ----------------------------------------------------------------
 # H200 新终端，执行第一节环境和 export。GPU编号按空闲设备修改。
-# 下面假设 round 0 已完整同步到 /nfs/baiyuntian/assets/datasets/banknote_round_0。
+# 下面假设 round 0 已完整同步到 /nfs/baiyuntian/assets/rlt_0909/banknote_round_0。
 mkdir -p "$RLT_ROOT/specs"
 cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
 [
@@ -152,7 +152,7 @@ cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
   },
   {
     "repo_id": "local/banknote_round_0",
-    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_0",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_0",
     "source": "rollout"
   }
 ]
@@ -244,7 +244,7 @@ cat > "$RLT_ROOT/specs/round_1.json" <<'JSON'
 [
   {
     "repo_id": "local/banknote_round_1",
-    "root": "/nfs/baiyuntian/assets/datasets/banknote_round_1",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_1",
     "source": "rollout"
   }
 ]

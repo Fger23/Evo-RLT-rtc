@@ -117,10 +117,10 @@ PowerShell每行末尾的反引号后不要加空格；最后一行不加反引�
 先在H200创建接收目录，再回Windows上传。
 
 【H200 Ubuntu，终端C】
-mkdir -p /nfs/baiyuntian/assets/datasets
+mkdir -p /nfs/baiyuntian/assets/rlt_0909
 
 【Windows PowerShell，终端B】
-scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/datasets/
+scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
 
 六、H200：编码缓存 → 训练token → 训练actor-critic
 ------------------------------------------------------------
@@ -166,7 +166,7 @@ remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/banknote
 python -m lerobot.scripts.lerobot_rlt_record --config_path=configs/rlt/windows_record.json
 
 采集完成后上传：
-scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_1 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/datasets/
+scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_1 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
 
 八、H200：加入新数据，训练round_2
 ------------------------------------------------------------
