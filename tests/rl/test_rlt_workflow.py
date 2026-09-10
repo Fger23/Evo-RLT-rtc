@@ -25,7 +25,7 @@ class IntegrityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.shared = tempfile.TemporaryDirectory()
-        cls.source = Path(cls.shared.name) / "banknote_round_0"
+        cls.source = Path(cls.shared.name) / "dianchao_0"
         features = {
             **{
                 key: {"dtype": "float32", "shape": (12,), "names": [f"joint_{i}" for i in range(12)]}
@@ -42,7 +42,7 @@ class IntegrityTests(unittest.TestCase):
             },
         }
         dataset = LeRobotDataset.create(
-            "local/banknote_round_0",
+            "local/dianchao_0",
             fps=30,
             features=features,
             root=cls.source,
@@ -79,7 +79,7 @@ class IntegrityTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "banknote_round_0"
+        self.root = Path(self.temporary.name) / "dianchao_0"
         shutil.copytree(self.source, self.root)
 
     def seal(self):

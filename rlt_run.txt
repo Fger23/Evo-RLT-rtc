@@ -75,7 +75,7 @@ python -m lerobot.async_inference.policy_server \
 export LEFT_ARM_PORT="/dev/ttyACM0"
 export RIGHT_ARM_PORT="/dev/ttyACM1"
 export ROUND=0
-export ROLLOUT_ROOT="$HOME/rlt_datasets/banknote_round_${ROUND}"
+export ROLLOUT_ROOT="$HOME/rlt_datasets/dianchao_${ROUND}"
 export ROLLOUT_POLICY="$BASE_POLICY"  # 此路径由服务端解析
 export POLICY_TYPE=pi05
 
@@ -94,7 +94,7 @@ collect_rlt_round() {
     --robot.right_arm_config.cameras='{
       wrist: {"type": "opencv", "index_or_path": "/dev/v4l/by-path/pci-0000:c6:00.3-usb-0:1:1.0-video-index0", "width": 640, "height": 480, "fps": 30, "fourcc": "MJPG"}
     }' \
-    --dataset.repo_id="local/banknote_round_${ROUND}" \
+    --dataset.repo_id="local/dianchao_${ROUND}" \
     --dataset.root="$ROLLOUT_ROOT" \
     --dataset.single_task="$TASK" \
     --dataset.fps=30 \
@@ -141,7 +141,7 @@ collect_rlt_round
 四、构建缓存、训练 RL token 与 actor-critic
 ----------------------------------------------------------------
 # H200 新终端，执行第一节环境和 export。GPU编号按空闲设备修改。
-# 下面假设 round 0 已完整同步到 /nfs/baiyuntian/assets/rlt_0909/banknote_round_0。
+# 下面假设 round 0 已完整同步到 /nfs/baiyuntian/assets/rlt_0909/dianchao_0。
 mkdir -p "$RLT_ROOT/specs"
 cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
 [
@@ -151,8 +151,8 @@ cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
     "source": "demo"
   },
   {
-    "repo_id": "local/banknote_round_0",
-    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_0",
+    "repo_id": "local/dianchao_0",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/dianchao_0",
     "source": "rollout"
   }
 ]
@@ -219,7 +219,7 @@ CUDA_VISIBLE_DEVICES=5 python -m lerobot.scripts.lerobot_rlt_train ac \
 ----------------------------------------------------------------
 # 机器人终端，结束旧客户端后，复用第三节的collect_rlt_round函数：
 export ROUND=1
-export ROLLOUT_ROOT="$HOME/rlt_datasets/banknote_round_${ROUND}"
+export ROLLOUT_ROOT="$HOME/rlt_datasets/dianchao_${ROUND}"
 export POLICY_TYPE=rlt
 export ROLLOUT_POLICY="$RLT_ROOT/round_1"  # H200路径；两端RLT_ROOT需一致
 collect_rlt_round
@@ -243,8 +243,8 @@ collect_rlt_round
 cat > "$RLT_ROOT/specs/round_1.json" <<'JSON'
 [
   {
-    "repo_id": "local/banknote_round_1",
-    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_1",
+    "repo_id": "local/dianchao_1",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/dianchao_1",
     "source": "rollout"
   }
 ]

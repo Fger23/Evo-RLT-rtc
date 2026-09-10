@@ -124,7 +124,7 @@ PowerShell每行末尾的反引号后不要加空格；最后一行不加反引�
 mkdir -p /nfs/baiyuntian/assets/rlt_0909
 
 【Windows PowerShell，终端B】
-scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
+scp -P 2222 -r D:/byt/rlt_datasets/dianchao_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
 
 六、H200：编码缓存 → 训练token → 训练actor-critic
 ------------------------------------------------------------
@@ -163,8 +163,8 @@ python -m lerobot.scripts.lerobot_rlt_train ac --cache "$RLT/cache_initial" --to
 notepad .\configs\rlt\windows_record.json
 
 这次只修改四项，机械臂和相机配置不动：
-dataset.repo_id → local/banknote_round_1
-dataset.root → D:/byt/rlt_datasets/banknote_round_1
+dataset.repo_id → local/dianchao_1
+dataset.root → D:/byt/rlt_datasets/dianchao_1
 remote_policy.policy_type → rlt
 remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910/round_1
 
@@ -172,7 +172,7 @@ remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/training
 python -m lerobot.scripts.lerobot_rlt_record --config_path=configs/rlt/windows_record.json
 
 采集完成后上传：
-scp -P 2222 -r D:/byt/rlt_datasets/banknote_round_1 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
+scp -P 2222 -r D:/byt/rlt_datasets/dianchao_1 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
 
 八、H200：加入新数据，训练round_2
 ------------------------------------------------------------
@@ -209,9 +209,9 @@ H200的8090推理服务须已启动，启动方式见第三节。
 密码输入时不会显示字符，输入完按回车；这与Windows登录密码无关。
 
 轮次对应关系（Round表示正在采集的数据轮次）：
-Round=0：原ACP+RTC模型 → banknote_round_0 → 训练得到round_1
-Round=1：round_1模型 → banknote_round_1 → 训练得到round_2
-Round=2：round_2模型 → banknote_round_2 → 训练得到round_3
+Round=0：原ACP+RTC模型 → dianchao_0 → 训练得到round_1
+Round=1：round_1模型 → dianchao_1 → 训练得到round_2
+Round=2：round_2模型 → dianchao_2 → 训练得到round_3
 
 1. 设置当前轮次和GPU（在同一个PowerShell窗口中执行）
 ------------------------------------------------------------
@@ -239,8 +239,8 @@ ModelRoot用于保存本次RLT的缓存、token、各轮模型和训练日志，
 
 2. 开始采集当前轮，自动对应数据目录和模型
 ------------------------------------------------------------
-$LocalData = "D:/byt/rlt_datasets/banknote_round_$Round"
-$RemoteData = "$ServerDataRoot/banknote_round_$Round"
+$LocalData = "D:/byt/rlt_datasets/dianchao_$Round"
+$RemoteData = "$ServerDataRoot/dianchao_$Round"
 if ($Round -eq 0) {
     $PolicyType = 'pi05'
     $PolicyPath = $BasePolicy
@@ -252,7 +252,7 @@ Write-Host "采集轮次=$Round 模型=$PolicyPath 本地数据=$LocalData 服�
 if (Test-Path -LiteralPath $LocalData) { throw "本轮目录已存在，请先核对已有数据：$LocalData" }
 python -m lerobot.scripts.lerobot_rlt_record `
     --config_path=configs/rlt/windows_record.json `
-    --dataset.repo_id="local/banknote_round_$Round" `
+    --dataset.repo_id="local/dianchao_$Round" `
     --dataset.root="$LocalData" `
     --remote_policy.policy_type="$PolicyType" `
     --remote_policy.pretrained_name_or_path="$PolicyPath" `
@@ -267,7 +267,7 @@ python -m lerobot.scripts.lerobot_rlt_record `
 if ($LASTEXITCODE -ne 0) { throw '采集报错，请先检查采集日志' }
 
 在8个采集参数之外，这里显式指定数据repo_id、保存目录、模型类型和模型路径，
-确保banknote_round_N确实由对应模型采集；机械臂、相机等继续读取JSON。
+确保dianchao_N确实由对应模型采集；机械臂、相机等继续读取JSON。
 RTC前缀长度在--remote_policy.rtc_prefix_steps中填写，当前为21步。
 提前请求比例在--remote_policy.chunk_size_threshold中填写，0.7代表剩余70%（H=50时为35步）。
 比例须在0和1之间，且floor(H*比例)不少于前缀长度；当前21步前缀配0.7符合要求。
@@ -308,8 +308,8 @@ if ($LASTEXITCODE -ne 0) { throw '上传失败，请重新上传本轮完整目�
 ssh -p 2222 baiyuntian@10.61.5.3 "cd /home/baiyuntian/training-rtc/Evo-RLT-rtc && $ServerPython -m lerobot.scripts.lerobot_rlt_verify --root $RemoteData --round $Round --expected-episodes $Episodes --expected-policy $PolicyPath --fps 30 --check-manifest"
 if ($LASTEXITCODE -ne 0) { throw '服务器文件与本地不一致，先处理校验错误' }
 
-Windows：D:\byt\rlt_datasets\banknote_round_N
-H200：/nfs/baiyuntian/assets/rlt_0909/banknote_round_N
+Windows：D:\byt\rlt_datasets\dianchao_N
+H200：/nfs/baiyuntian/assets/rlt_0909/dianchao_N
 必须上传整个目录，包括meta、data、videos和rlt_integrity.json。
 服务器会逐文件核对大小及SHA256，检测漏传、文件损坏和错误轮次。
 如果修改或补录了数据，先重新执行第3步，再上传并检查。
@@ -321,8 +321,8 @@ if ($LASTEXITCODE -ne 0) { throw '训练任务未启动，请查看以上报错'
 
 看到STARTED和pid表示后台任务已启动，不代表训练完成。关闭SSH后训练仍继续。
 脚本会再次核对上传数据，然后依次执行：
-- Round=0：原示教数据+banknote_round_0编码到cache_initial → token训练5000步 → actor-critic训练5000步 → round_1。
-- Round>=1：只编码新增banknote_round_N到cache_round_N → 加载round_N及全部历史缓存 → 继续actor-critic训练5000步 → round_(N+1)。
+- Round=0：原示教数据+dianchao_0编码到cache_initial → token训练5000步 → actor-critic训练5000步 → round_1。
+- Round>=1：只编码新增dianchao_N到cache_round_N → 加载round_N及全部历史缓存 → 继续actor-critic训练5000步 → round_(N+1)。
 后续轮次沿用已训练的token；cache始终使用最初的ACP+RTC模型，H=50、d=21、30fps。
 首次原示教数据路径来自configs/rlt/initial.json中的source=demo项，必须有真实成功/失败标签。
 输入清单自动保存到模型目录下jobs/from_round_N/dataset_spec.json，无需每轮手改initial.json。
@@ -349,9 +349,9 @@ NOT_STARTED：本轮还没有启动任务。
 ssh -p 2222 baiyuntian@10.61.5.3 "$ServerPython -m lerobot.scripts.lerobot_rlt_round status --round $Round --model-root $ModelRoot --require-done --tail 0"
 if ($LASTEXITCODE -ne 0) { throw '训练尚未成功完成，先停在第6步查询和处理' }
 $Round = $Round + 1
-Write-Host "下一轮采集：banknote_round_$Round，使用模型 $ModelRoot/round_$Round"
+Write-Host "下一轮采集：dianchao_$Round，使用模型 $ModelRoot/round_$Round"
 
 现在回到第2步，重新执行第2至第7步。第2步会更新LocalData、RemoteData、PolicyType和PolicyPath。
-例如第一次完成后Round=1，自动使用round_1模型，把新数据写入banknote_round_1；
+例如第一次完成后Round=1，自动使用round_1模型，把新数据写入dianchao_1；
 上传并训练完成后得到round_2，再继续Round=2。
 推理服务在新采集连接时加载命令指定的模型；等待加载完成后才会开始采集。

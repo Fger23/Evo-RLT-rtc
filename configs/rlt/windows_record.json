@@ -40,8 +40,8 @@
     }
   },
   "dataset": {
-    "repo_id": "local/banknote_round_0",
-    "root": "D:/byt/rlt_datasets/banknote_round_0",
+    "repo_id": "local/dianchao_0",
+    "root": "D:/byt/rlt_datasets/dianchao_0",
     "single_task": "Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine.",
     "fps": 30,
     "num_episodes": 20,

@@ -42,7 +42,7 @@ def verify_transfer(root, round_number, expected_episodes, expected_policy):
     require(
         report.get("format_version") == 1 and report.get("verified") is True, "Invalid integrity manifest"
     )
-    require(root.name == f"banknote_round_{round_number}", "Dataset directory does not match --round")
+    require(root.name == f"dianchao_{round_number}", "Dataset directory does not match --round")
     require(report["round"] == round_number, "Uploaded dataset belongs to another round")
     require(report["episodes"] == expected_episodes, "Unexpected episode count in integrity manifest")
     require(report["policy"] == expected_policy, "Rollouts were collected by another policy")
@@ -58,7 +58,7 @@ def verify_transfer(root, round_number, expected_episodes, expected_policy):
 
 def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=30):
     root = Path(root)
-    require(root.name == f"banknote_round_{round_number}", "Dataset directory does not match --round")
+    require(root.name == f"dianchao_{round_number}", "Dataset directory does not match --round")
     info = json.loads((root / "meta/info.json").read_text(encoding="utf-8"))
     stats = json.loads((root / "meta/stats.json").read_text(encoding="utf-8"))
     require(
@@ -167,7 +167,7 @@ def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=3
         "format_version": 1,
         "verified": True,
         "round": round_number,
-        "repo_id": f"local/banknote_round_{round_number}",
+        "repo_id": f"local/dianchao_{round_number}",
         "policy": expected_policy,
         "episodes": expected_episodes,
         "frames": cursor,

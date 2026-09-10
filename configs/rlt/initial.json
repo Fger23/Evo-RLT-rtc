@@ -5,8 +5,8 @@
     "source": "demo"
   },
   {
-    "repo_id": "local/banknote_round_0",
-    "root": "/nfs/baiyuntian/assets/rlt_0909/banknote_round_0",
+    "repo_id": "local/dianchao_0",
+    "root": "/nfs/baiyuntian/assets/rlt_0909/dianchao_0",
     "source": "rollout"
   }
 ]

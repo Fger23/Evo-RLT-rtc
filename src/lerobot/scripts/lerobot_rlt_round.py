@@ -26,12 +26,12 @@ def make_plan(args):
         raise ValueError("Require nonnegative round/GPU, positive episodes/token steps, and ac-steps >= 2")
     config = json.loads((REPO / "configs/rlt/windows_record.json").read_text(encoding="utf-8"))
     model_root = Path(args.model_root).resolve()
-    dataset = Path(args.data_root).resolve() / f"banknote_round_{args.round}"
+    dataset = Path(args.data_root).resolve() / f"dianchao_{args.round}"
     base = config["remote_policy"]["pretrained_name_or_path"]
     source_policy = base if args.round == 0 else str(model_root / f"round_{args.round}")
     output = model_root / f"round_{args.round + 1}"
     job = model_root / "jobs" / f"from_round_{args.round}"
-    specs = [{"repo_id": f"local/banknote_round_{args.round}", "root": str(dataset), "source": "rollout"}]
+    specs = [{"repo_id": f"local/dianchao_{args.round}", "root": str(dataset), "source": "rollout"}]
     if args.round == 0:
         initial = json.loads((REPO / "configs/rlt/initial.json").read_text(encoding="utf-8"))
         specs = [entry for entry in initial if entry["source"] == "demo"] + specs
@@ -175,7 +175,7 @@ def worker(job):
 
 def start(args):
     plan = make_plan(args)
-    print(f"banknote_round_{args.round} -> round_{args.round + 1}; physical GPU {args.gpu}")
+    print(f"dianchao_{args.round} -> round_{args.round + 1}; physical GPU {args.gpu}")
     for stage, command in plan["commands"]:
         print(f"{stage}: {shlex.join(command)}")
     if args.dry_run:
