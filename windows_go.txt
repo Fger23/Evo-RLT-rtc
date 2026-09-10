@@ -133,12 +133,14 @@ cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
 conda activate evo-rl
 export PYTHONPATH="$PWD/src"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=6
 BASE=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model
 RLT=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910
 TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
 
-本节示例用GPU5训练；请按实际空闲GPU调整，避开当前推理使用的卡。
+本节与第四节示例共用物理GPU6，先结束采集、完成数据上传，再启动训练。
+推理服务空闲时仍保留模型显存；同卡训练需为这部分占用留出空间。
+如果显存不足，先停止推理服务释放显存，训练完成后按第三节重新启动服务。
 configs/rlt/initial.json已经列好原示教数据和第0轮数据，请核对其中的H200路径。
 旧数据必须有真实episode_success标签；缺失时按rlt_run.txt补标签后再运行。
 以下三个命令依次执行，上一步成功后再运行下一步：
@@ -218,17 +220,20 @@ conda activate rlt-client
 $Round = 0
 $Episodes = 20
 $InferGpu = 7
-$TrainGpu = 5
+$TrainGpu = $InferGpu
 $ServerPython = '/home/baiyuntian/miniforge3/envs/evo-rl/bin/python'
 $ServerDataRoot = '/nfs/baiyuntian/assets/rlt_0909'
 $ModelRoot = '/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910'
 $BasePolicy = '/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model'
 ssh -p 2222 baiyuntian@10.61.5.3 nvidia-smi
 
-InferGpu是推理用的物理卡号，TrainGpu是训练用的物理卡号，按实际占用修改。
+InferGpu是推理用的物理卡号，TrainGpu跟随它，默认推理和训练顺序共用物理GPU7。
+改卡时修改InferGpu，再执行TrainGpu赋值这一行；若以后需要分卡，也可以单独设置TrainGpu。
 基础检查点last下面的pretrained_model才包含模型配置和权重，BasePolicy需保留这一层。
 ModelRoot用于保存本次RLT的缓存、token、各轮模型和训练日志，当前为新模型目录下的rlt0910。
-推理服务会保留已加载的模型，训练请选择其他空闲卡。
+先等采集退出，再验证、上传和训练；确认训练DONE后才开始下一轮采集。
+推理服务空闲时仍保留已加载模型的显存，但不会继续执行推理请求。
+同卡训练需容纳常驻推理模型和训练进程；若显存不足，停止推理服务后训练，下一轮前按第三节重启服务。
 第一次从Round=0开始；已有前几轮结果时，填写要继续采集的轮次。
 第7步会把Round加1，之后回到第2步，不要再次把Round设回0。
 
@@ -321,7 +326,7 @@ if ($LASTEXITCODE -ne 0) { throw '训练任务未启动，请查看以上报错'
 后续轮次沿用已训练的token；cache始终使用最初的ACP+RTC模型，H=50、d=21、30fps。
 首次原示教数据路径来自configs/rlt/initial.json中的source=demo项，必须有真实成功/失败标签。
 输入清单自动保存到模型目录下jobs/from_round_N/dataset_spec.json，无需每轮手改initial.json。
-训练GPU由--gpu选择，例如--gpu 5就是物理5号卡；只对后台训练进程设置单卡可见。
+训练GPU由--gpu选择，默认跟随InferGpu，例如都设为7就顺序共用物理7号卡；只对后台训练进程设置单卡可见。
 同一轮重复启动、已有输出或缓存会被拒绝，以保留原数据和检查点。
 
 6. 查询训练状态和最近日志（可以多次执行）
