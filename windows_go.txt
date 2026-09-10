@@ -253,7 +253,6 @@ if ($Round -eq 0) {
     $PolicyPath = "$ModelRoot/round_$Round"
 }
 Write-Host "采集轮次=$Round 模型=$PolicyPath 本地数据=$LocalData 服务器数据=$RemoteData"
-if (Test-Path -LiteralPath $LocalData) { throw "本轮目录已存在，请先核对已有数据：$LocalData" }
 python -m lerobot.scripts.lerobot_rlt_record `
     --config_path=configs/rlt/windows_record.json `
     --dataset.repo_id="local/dianchao_$Round" `
@@ -281,7 +280,13 @@ Esc：结束整次采集并收尾保存；当前条未标记时按失败处理�
 左方向键：丢弃误采的当前条并重采；真实失败请按f保留。
 进入Reset the environment后有30秒人工整理时间，当前配置不自动回零。
 整理好后可按右方向键提前结束等待；否则等待时间结束后自动进入下一条。
-20条是成功和失败的总数。等程序退出、视频保存完成后再执行第3步。
+20条是本轮目录中成功和失败记录的目标总数，不是每次新增20条。
+中途正常退出后，重新执行同一条采集命令即可补采，不用改Round或添加--resume。
+例如已有7条有效记录，只再采13条；已有20条或更多时直接退出，不连接机械臂。
+续采前会完整检查已有记录的标签、模型、任务文本、帧和三路视频，检查可能需要一些时间。
+损坏或任务/模型不匹配的数据会报错，须先处理；不会把它们当成有效记录继续追加。
+只有0条的初始化残留目录会保留为旁边的.empty-backup-*备份，然后在原路径重新采集。
+等程序退出、视频保存完成后再执行第3步，续采后需要重新生成上传校验文件。
 H=50、d=21和30fps与后面的缓存/训练一致，进入这个闭环后保持一致。
 修改请求比例不改变训练前缀；修改前缀长度则需要同步调整缓存/训练，后续RLT模型要求与训练前缀一致。
 

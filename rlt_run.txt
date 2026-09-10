@@ -84,6 +84,9 @@ export ROLLOUT_POLICY="$BASE_POLICY"  # 此路径由服务端解析
 export POLICY_TYPE=pi05
 
 # 定义一次，每轮执行相同的采集函数；每轮用新的数据目录和 repo_id。
+# 同一轮可重复执行：num_episodes=20表示补到总共20条有效记录，不是额外再采20条。
+# 自动校验已有记录并续采；达到目标即退出，不连接机器人，无需手动加--resume。
+# 成功和失败都计数；损坏数据需先处理，0条初始化残留会另存备份后重建。
 # reset_time_s 是人工重摆钞票与机器人复位的时间，请按现场操作速度调整。
 collect_rlt_round() {
   python -m lerobot.scripts.lerobot_rlt_record \

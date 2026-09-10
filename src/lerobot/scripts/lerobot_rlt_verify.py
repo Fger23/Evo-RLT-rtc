@@ -56,9 +56,10 @@ def verify_transfer(root, round_number, expected_episodes, expected_policy):
     return report
 
 
-def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=30):
+def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=30, expected_task=None):
     root = Path(root)
-    require(root.name == f"dianchao_{round_number}", "Dataset directory does not match --round")
+    if round_number is not None:
+        require(root.name == f"dianchao_{round_number}", "Dataset directory does not match --round")
     info = json.loads((root / "meta/info.json").read_text(encoding="utf-8"))
     stats = json.loads((root / "meta/stats.json").read_text(encoding="utf-8"))
     require(
@@ -77,6 +78,8 @@ def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=3
     require(expected_episodes > 0, "Empty dataset")
     tasks = pads.dataset(root / "meta/tasks.parquet", format="parquet").to_table()
     require(tasks.num_rows > 0, "Missing tasks")
+    if expected_task is not None:
+        require(set(tasks.to_pandas().index) == {expected_task}, "Existing dataset uses a different task prompt")
     video_keys = {key for key, feature in info["features"].items() if feature["dtype"] == "video"}
     require(video_keys == set(CAMERAS), f"Expected three banknote cameras, got {video_keys}")
     policy_key = "complementary_info.collector_policy_id"
@@ -167,7 +170,7 @@ def verify_dataset(root, round_number, expected_episodes, expected_policy, fps=3
         "format_version": 1,
         "verified": True,
         "round": round_number,
-        "repo_id": f"local/dianchao_{round_number}",
+        "repo_id": f"local/dianchao_{round_number}" if round_number is not None else None,
         "policy": expected_policy,
         "episodes": expected_episodes,
         "frames": cursor,

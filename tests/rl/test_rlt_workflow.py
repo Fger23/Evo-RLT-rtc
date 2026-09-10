@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import av
 import numpy as np
@@ -17,6 +18,7 @@ import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.scripts import lerobot_rlt_round as jobs
 from lerobot.scripts.lerobot_rlt_verify import CAMERAS, SEAL, verify_dataset, verify_transfer
+from lerobot.scripts.recording_rlt_resume import record_to_target
 
 POLICY = "/models/original_pi05"
 
@@ -134,6 +136,104 @@ class IntegrityTests(unittest.TestCase):
         pq.write_table(table.slice(1), path)
         with self.assertRaisesRegex(ValueError, "Frame count"):
             verify_dataset(self.root, 0, 2, POLICY)
+
+    def recording_config(self, target=20):
+        return SimpleNamespace(
+            dataset=SimpleNamespace(
+                root=self.root,
+                repo_id="local/dianchao_0",
+                num_episodes=target,
+                fps=30,
+                single_task="Count banknotes",
+            ),
+            remote_policy=SimpleNamespace(pretrained_name_or_path=POLICY),
+            collector_policy_id_policy=None,
+            resume=False,
+        )
+
+    def test_resume_appends_native_episode_and_reaches_total_without_overwrite(self):
+        before = self.seal()
+        cfg = self.recording_config(target=3)
+
+        def append(recording_cfg):
+            self.assertTrue(recording_cfg.resume)
+            self.assertEqual(recording_cfg.dataset.num_episodes, 1)
+            dataset = LeRobotDataset(cfg.dataset.repo_id, root=self.root, video_backend="pyav", vcodec="h264")
+            try:
+                for index in range(6):
+                    dataset.add_frame(
+                        {
+                            "action": np.full(12, index, dtype=np.float32),
+                            "observation.state": np.full(12, 2, dtype=np.float32),
+                            "task": cfg.dataset.single_task,
+                            "complementary_info.collector_policy_id": POLICY,
+                            **{key: np.full((32, 32, 3), index * 20, dtype=np.uint8) for key in CAMERAS},
+                        }
+                    )
+                dataset.save_episode(extra_episode_metadata={"episode_success": "failure"})
+                dataset.finalize()
+            finally:
+                dataset.stop_image_writer()
+                dataset._close_writer()
+                dataset.meta._close_writer()
+
+        record_to_target(cfg, append)
+        self.assertEqual(cfg.dataset.num_episodes, 3)
+        self.assertFalse(cfg.resume)
+        self.assertFalse((self.root / SEAL).exists())
+        after = verify_dataset(self.root, 0, 3, POLICY)
+        self.assertEqual((after["frames"], after["success"], after["failure"]), (18, 1, 2))
+        for name, digest in before["files"].items():
+            if name.startswith("data/"):
+                self.assertEqual(after["files"][name], digest)
+        recorder = Mock()
+        record_to_target(cfg, recorder)
+        recorder.assert_not_called()
+
+    def test_target_reached_or_exceeded_never_starts_recorder(self):
+        self.seal()
+        for target in (1, 2):
+            recorder = Mock()
+            record_to_target(self.recording_config(target), recorder)
+            recorder.assert_not_called()
+            self.assertTrue((self.root / SEAL).exists())
+
+    def test_resume_rejects_bad_data_policy_or_task_before_recording(self):
+        for field, value in (("policy", "/wrong/model"), ("task", "Bind banknotes")):
+            cfg = self.recording_config()
+            if field == "policy":
+                cfg.remote_policy.pretrained_name_or_path = value
+            else:
+                cfg.dataset.single_task = value
+            recorder = Mock()
+            with self.assertRaises(ValueError):
+                record_to_target(cfg, recorder)
+            recorder.assert_not_called()
+        next((self.root / "videos").rglob("*.mp4")).unlink()
+        recorder = Mock()
+        with self.assertRaisesRegex(ValueError, "Missing"):
+            record_to_target(self.recording_config(), recorder)
+        recorder.assert_not_called()
+
+    def test_new_and_zero_episode_directories_start_fresh(self):
+        cfg = self.recording_config()
+        cfg.dataset.root = self.root.parent / "new_round"
+        recorder = Mock()
+        record_to_target(cfg, recorder)
+        self.assertFalse(recorder.call_args.args[0].resume)
+        self.assertEqual(recorder.call_args.args[0].dataset.num_episodes, 20)
+        for with_metadata in (False, True):
+            cfg.dataset.root.mkdir()
+            if with_metadata:
+                (cfg.dataset.root / "meta").mkdir()
+                (cfg.dataset.root / "meta/info.json").write_text('{"total_episodes": 0}')
+                (cfg.dataset.root / "unsaved-frame.png").write_bytes(b"preserve me")
+            record_to_target(cfg, recorder)
+            self.assertFalse(cfg.dataset.root.exists())
+            self.assertFalse(recorder.call_args.args[0].resume)
+        backups = list(self.root.parent.glob("new_round.empty-backup-*"))
+        self.assertEqual(len(backups), 2)
+        self.assertEqual(sum((path / "unsaved-frame.png").exists() for path in backups), 1)
 
 
 class RoundJobTests(unittest.TestCase):

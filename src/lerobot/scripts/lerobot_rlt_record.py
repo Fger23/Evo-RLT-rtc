@@ -5,6 +5,7 @@
 
 from lerobot.configs import parser
 from lerobot.scripts.lerobot_record import RecordConfig, record
+from lerobot.scripts.recording_rlt_resume import record_to_target
 from lerobot.utils.import_utils import register_third_party_plugins
 
 
@@ -28,7 +29,7 @@ def rlt_record(cfg: RecordConfig):
     cfg.intervention_state_machine_enabled = cfg.teleop is not None
     # Reset is performed by the operator through the recorder's existing reset
     # phase; this entrypoint does not initiate an automatic robot reset motion.
-    return record(cfg)
+    return record_to_target(cfg, record)
 
 
 def main():
