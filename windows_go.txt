@@ -136,7 +136,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=6
 BASE=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model
 RLT=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910
-TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
+TASK="Pick up the banknotes and put them into the currency counter for counting on both sides."
 
 本节与第四节示例共用物理GPU6，先结束采集、完成数据上传，再启动训练。
 推理服务空闲时仍保留模型显存；同卡训练需为这部分占用留出空间。

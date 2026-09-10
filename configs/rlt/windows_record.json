@@ -42,7 +42,7 @@
   "dataset": {
     "repo_id": "local/dianchao_0",
     "root": "D:/byt/rlt_datasets/dianchao_0",
-    "single_task": "Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine.",
+    "single_task": "Pick up the banknotes and put them into the currency counter for counting on both sides.",
     "fps": 30,
     "num_episodes": 20,
     "episode_time_s": 120,

@@ -46,7 +46,7 @@ pip install -e ".[async,feetech,intelrealsense]"
 # 不要安装上游 Evo-RLT 的 [lerobot] extra；它会切换 LeRobot 版本。
 # 下列每个终端都应处于本库根目录，并设置：
 export PYTHONPATH="$PWD/src"
-export TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
+export TASK="Pick up the banknotes and put them into the currency counter for counting on both sides."
 export BASE_POLICY="/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model"
 export RTC_SERVER_IP="10.61.5.3"
 export RLT_ROOT="/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910"
