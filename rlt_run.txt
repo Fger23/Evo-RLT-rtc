@@ -1,8 +1,11 @@
-ACP + 训练版 RTC + RLT：点钞/扎钞任务运行步骤（Linux / Bash）
+ACP + 训练版 RTC + RLT：点钞机双面点钞运行步骤（Linux / Bash）
 ================================================================
 
 本文件配合当前代码库使用。已有 ACP 数据、价值网络、ACP+RTC 策略可继续使用，
 无需重新采集 ACP 数据，也无需重新执行 run.txt 中的 ACP 训练。
+本流程只训练RLT adapter新增模块，原始PI0.5的ACP+RTC权重全程冻结。
+cache只用冻结模型前向提取特征；首次训练RL token，再训练Actor/Critic；后续轮次只继续Actor/Critic。
+原示教数据和新rollout都是adapter的训练输入，不会触发基础模型重训。
 
 当前实际部署是 Windows 工控机客户端 + H200 Ubuntu 服务端，请按 windows_go.txt
 执行完整流程：Windows 本机控制/录制，数据上传 H200 后编码和训练。本文保留
@@ -18,6 +21,7 @@ PI0.5、池化 token、小幅残差 actor，以及完整动作块的训练版 RT
 
 重要约定：
 1. ACP+RTC checkpoint 是固定基础策略，整个 RLT 迭代期间保持不变。
+   导出的rlt_model.pt保存RL token、Actor和Critic参数，基础权重仍通过原checkpoint路径加载。
 2. 使用其原始相机顺序、动作顺序、预处理和归一化统计；不要用新 rollout 重算替换。
 3. 当前任务为点钞机双面点钞，采集和缓存编码统一使用下面的currency counter任务文本。
 4. 当前 H=50、部署前缀 d=21、基础模型训练上限 D=37。RLT 只修改前缀之后的动作。

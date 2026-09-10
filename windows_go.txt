@@ -126,7 +126,7 @@ mkdir -p /nfs/baiyuntian/assets/rlt_0909
 【Windows PowerShell，终端B】
 scp -P 2222 -r D:/byt/rlt_datasets/dianchao_0 baiyuntian@10.61.5.3:/nfs/baiyuntian/assets/rlt_0909/
 
-六、H200：编码缓存 → 训练token → 训练actor-critic
+六、H200：冻结原始模型，编码缓存并训练RLT adapter
 ------------------------------------------------------------
 【H200 Ubuntu，终端C】
 cd /home/baiyuntian/training-rtc/Evo-RLT-rtc
@@ -144,6 +144,9 @@ TASK="Pick up the banknotes and put them into the currency counter for counting 
 configs/rlt/initial.json已经列好原示教数据和第0轮数据，请核对其中的H200路径。
 原示教使用bimanual_banknotes_0827_28（152条点钞机双面点钞记录），与当前基础模型训练数据一致。
 旧数据必须有真实episode_success标签；缺失时按rlt_run.txt补标签后再运行。
+本流程仅训练RLT新增模块，原始PI0.5的ACP+RTC权重全程冻结。
+cache只进行前向特征编码；token阶段训练RL token模块；ac阶段只优化Actor和Critic。
+原示教数据和新rollout用于训练adapter，不会重训原始模型。
 以下三个命令依次执行，上一步成功后再运行下一步：
 
 1. 编码缓存：
@@ -315,16 +318,19 @@ H200：/nfs/baiyuntian/assets/rlt_0909/dianchao_N
 服务器会逐文件核对大小及SHA256，检测漏传、文件损坏和错误轮次。
 如果修改或补录了数据，先重新执行第3步，再上传并检查。
 
-5. 从Windows启动H200后台训练
+5. 从Windows启动H200后台adapter训练
 ------------------------------------------------------------
 ssh -p 2222 baiyuntian@10.61.5.3 "$ServerPython -m lerobot.scripts.lerobot_rlt_round start --round $Round --gpu $TrainGpu --episodes $Episodes --token-steps 5000 --ac-steps 5000 --data-root $ServerDataRoot --model-root $ModelRoot"
 if ($LASTEXITCODE -ne 0) { throw '训练任务未启动，请查看以上报错' }
 
 看到STARTED和pid表示后台任务已启动，不代表训练完成。关闭SSH后训练仍继续。
+这里训练的是RLT adapter，原始ACP+RTC模型全部冻结；无需再运行原始模型训练命令。
 脚本会再次核对上传数据，然后依次执行：
 - Round=0：原示教数据+dianchao_0编码到cache_initial → token训练5000步 → actor-critic训练5000步 → round_1。
 - Round>=1：只编码新增dianchao_N到cache_round_N → 加载round_N及全部历史缓存 → 继续actor-critic训练5000步 → round_(N+1)。
 后续轮次沿用已训练的token；cache始终使用最初的ACP+RTC模型，H=50、d=21、30fps。
+cache仅做冻结模型的前向编码，不更新基础权重；后续轮次只继续训练Actor/Critic。
+round_N中的rlt_model.pt保存新增模块，部署时再加载原始冻结模型与这些模块一起推理。
 首次原示教数据路径来自configs/rlt/initial.json中的source=demo项，必须有真实成功/失败标签。
 当前原示教为/nfs/lerobot/s101/datasets/aggregation/evo-rl/bimanual_banknotes_0827_28，任务是点钞机双面点钞。
 输入清单自动保存到模型目录下jobs/from_round_N/dataset_spec.json，无需每轮手改initial.json。
