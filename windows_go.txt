@@ -142,6 +142,7 @@ TASK="Pick up the banknotes and put them into the currency counter for counting 
 推理服务空闲时仍保留模型显存；同卡训练需为这部分占用留出空间。
 如果显存不足，先停止推理服务释放显存，训练完成后按第三节重新启动服务。
 configs/rlt/initial.json已经列好原示教数据和第0轮数据，请核对其中的H200路径。
+原示教使用bimanual_banknotes_0827_28（152条点钞机双面点钞记录），与当前基础模型训练数据一致。
 旧数据必须有真实episode_success标签；缺失时按rlt_run.txt补标签后再运行。
 以下三个命令依次执行，上一步成功后再运行下一步：
 
@@ -325,6 +326,7 @@ if ($LASTEXITCODE -ne 0) { throw '训练任务未启动，请查看以上报错'
 - Round>=1：只编码新增dianchao_N到cache_round_N → 加载round_N及全部历史缓存 → 继续actor-critic训练5000步 → round_(N+1)。
 后续轮次沿用已训练的token；cache始终使用最初的ACP+RTC模型，H=50、d=21、30fps。
 首次原示教数据路径来自configs/rlt/initial.json中的source=demo项，必须有真实成功/失败标签。
+当前原示教为/nfs/lerobot/s101/datasets/aggregation/evo-rl/bimanual_banknotes_0827_28，任务是点钞机双面点钞。
 输入清单自动保存到模型目录下jobs/from_round_N/dataset_spec.json，无需每轮手改initial.json。
 训练GPU由--gpu选择，默认跟随InferGpu，例如都设为7就顺序共用物理7号卡；只对后台训练进程设置单卡可见。
 同一轮重复启动、已有输出或缓存会被拒绝，以保留原数据和检查点。

@@ -19,7 +19,7 @@ PI0.5、池化 token、小幅残差 actor，以及完整动作块的训练版 RT
 重要约定：
 1. ACP+RTC checkpoint 是固定基础策略，整个 RLT 迭代期间保持不变。
 2. 使用其原始相机顺序、动作顺序、预处理和归一化统计；不要用新 rollout 重算替换。
-3. 继续使用当前任务文本。下面沿用 RTC_run.txt 中的 banknote binding machine 文本。
+3. 当前任务为点钞机双面点钞，采集和缓存编码统一使用下面的currency counter任务文本。
 4. 当前 H=50、部署前缀 d=21、基础模型训练上限 D=37。RLT 只修改前缀之后的动作。
    不直接照搬上游 chunk_length=10：10 小于本部署的 21 步前缀。
 5. RLT 的任务奖励来自 episode_success=success/failure；acp_indicator 不是任务奖励。
@@ -146,8 +146,8 @@ mkdir -p "$RLT_ROOT/specs"
 cat > "$RLT_ROOT/specs/initial.json" <<'JSON'
 [
   {
-    "repo_id": "banknote_binding_iteration_1",
-    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/banknote_binding_iteration_1",
+    "repo_id": "bimanual_banknotes_0827_28",
+    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/bimanual_banknotes_0827_28",
     "source": "demo"
   },
   {

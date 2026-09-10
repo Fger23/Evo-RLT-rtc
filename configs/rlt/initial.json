@@ -1,7 +1,7 @@
 [
   {
-    "repo_id": "banknote_binding_iteration_1",
-    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/banknote_binding_iteration_1",
+    "repo_id": "bimanual_banknotes_0827_28",
+    "root": "/nfs/lerobot/s101/datasets/aggregation/evo-rl/bimanual_banknotes_0827_28",
     "source": "demo"
   },
   {
