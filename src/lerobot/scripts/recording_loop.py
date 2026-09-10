@@ -122,6 +122,8 @@ def record_loop(
 ):
     if acp_inference is None:
         acp_inference = ACPInferenceConfig()
+    if "rlt_phase" in events and events["exit_early"]:
+        return
 
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -194,7 +196,12 @@ def record_loop(
         preprocessor.reset()
         postprocessor.reset()
     if remote_policy_client is not None:
-        remote_policy_client.reset()
+        try:
+            remote_policy_client.reset()
+        except (TimeoutError, ConnectionError):
+            if "rlt_phase" in events and events["exit_early"]:
+                return
+            raise
 
     cond_policy_runtime_state: dict[str, Any] | None = None
     uncond_policy_runtime_state: dict[str, Any] | None = None
@@ -206,6 +213,9 @@ def record_loop(
         # Start in S0: policy drives both arms, teleop arm should accept feedback commands.
         set_teleop_manual_control(False)
 
+    class _RLTStopRequested(Exception):
+        pass
+
     def run_with_connection_retry(action_name: str, fn: Callable[[], T]) -> T:
         timeout_s = max(communication_retry_timeout_s, 0.0)
         interval_s = max(communication_retry_interval_s, 0.0)
@@ -214,6 +224,8 @@ def record_loop(
         first_error: ConnectionError | None = None
 
         while True:
+            if "rlt_phase" in events and events["exit_early"] and action_name.endswith("send_action"):
+                raise _RLTStopRequested
             attempts += 1
             try:
                 result = fn()
@@ -287,7 +299,14 @@ def record_loop(
                 logging.info("Intervention toggle ignored because policy+teleop are not both active.")
 
         # Get robot observation
-        obs = robot.get_observation()
+        try:
+            obs = robot.get_observation()
+        except (TimeoutError, ConnectionError):
+            if "rlt_phase" in events and events["exit_early"]:
+                break
+            raise
+        if "rlt_phase" in events and events["exit_early"]:
+            break
 
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
         obs_processed = robot_observation_processor(obs)
@@ -300,11 +319,16 @@ def record_loop(
         act_processed_teleop: RobotAction | None = None
         if not (intervention_enabled and intervention_state == INTERVENTION_STATE_ACTIVE):
             if remote_policy_client is not None:
-                act_processed_policy = remote_policy_client.get_action(
-                    observation=obs,
-                    task=single_task,
-                    timestep=step_idx,
-                )
+                try:
+                    act_processed_policy = remote_policy_client.get_action(
+                        observation=obs,
+                        task=single_task,
+                        timestep=step_idx,
+                    )
+                except (TimeoutError, ConnectionError, RuntimeError):
+                    if "rlt_phase" in events and events["exit_early"]:
+                        break
+                    raise
             elif policy is not None and preprocessor is not None and postprocessor is not None:
                 from lerobot.policies.utils import make_robot_action
 
@@ -392,22 +416,29 @@ def record_loop(
         robot_action_to_send = robot_action_processor((action_values, obs))
 
         # Send action to robot
+        # A label/stop may arrive while inference was waiting on an RPC. Never
+        # dispatch that newly returned action after the operator stopped RLT.
+        if "rlt_phase" in events and events["exit_early"]:
+            break
         # Action can eventually be clipped using `max_relative_target`,
         # so action actually sent is saved in the dataset. action = postprocessor.process(action)
         # TODO(steven, pepijn, adil): we should use a pipeline step to clip the action, so the sent action is the action that we input to the robot.
         selected_from_policy = act_processed_policy is not None and action_values is act_processed_policy
-        if policy_sync_executor is not None and selected_from_policy:
-            _sent_action = run_with_connection_retry(
-                "policy_sync_executor.send_action",
-                lambda robot_action_to_send=robot_action_to_send: policy_sync_executor.send_action(
-                    robot_action_to_send
-                ),
-            )
-        else:
-            _sent_action = run_with_connection_retry(
-                "robot.send_action",
-                lambda robot_action_to_send=robot_action_to_send: robot.send_action(robot_action_to_send),
-            )
+        try:
+            if policy_sync_executor is not None and selected_from_policy:
+                _sent_action = run_with_connection_retry(
+                    "policy_sync_executor.send_action",
+                    lambda robot_action_to_send=robot_action_to_send: policy_sync_executor.send_action(
+                        robot_action_to_send
+                    ),
+                )
+            else:
+                _sent_action = run_with_connection_retry(
+                    "robot.send_action",
+                    lambda robot_action_to_send=robot_action_to_send: robot.send_action(robot_action_to_send),
+                )
+        except _RLTStopRequested:
+            break
 
         if selected_from_policy and remote_policy_client is not None and hasattr(
             remote_policy_client, "confirm_action_executed"

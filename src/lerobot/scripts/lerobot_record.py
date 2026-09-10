@@ -477,11 +477,17 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             episode_success_key=cfg.episode_success_key if cfg.enable_episode_outcome_labeling else None,
             episode_failure_key=cfg.episode_failure_key if cfg.enable_episode_outcome_labeling else None,
         )
+        rlt_controller = getattr(cfg, "_rlt_episode_controller", None)
+        if rlt_controller is not None:
+            if listener is None:
+                raise RuntimeError("RLT manual recording requires an interactive keyboard for t/r/s/f/Esc")
+            rlt_controller.start_session(robot, teleop, events)
 
         with VideoEncodingManager(dataset):
             recorded_episodes = 0
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
-                events["episode_outcome"] = None
+                if rlt_controller is None:
+                    events["episode_outcome"] = None
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
                 record_loop(
                     robot=robot,
@@ -508,6 +514,8 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     communication_retry_timeout_s=cfg.communication_retry_timeout_s,
                     communication_retry_interval_s=cfg.communication_retry_interval_s,
                 )
+                if rlt_controller is not None:
+                    events["rlt_phase"] = "saving"
 
                 episode_success = None
                 if cfg.enable_episode_outcome_labeling:
@@ -522,6 +530,19 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                             dataset.num_episodes,
                             episode_success,
                         )
+
+                if rlt_controller is not None:
+                    saved = rlt_controller.finish_episode(
+                        robot,
+                        teleop,
+                        remote_policy_client,
+                        dataset,
+                        events,
+                        episode_success,
+                        has_more=recorded_episodes + 1 < cfg.dataset.num_episodes,
+                    )
+                    recorded_episodes += int(saved)
+                    continue
 
                 on_episode_outcome = getattr(cfg, "_on_record_episode_outcome", None)
                 if callable(on_episode_outcome):

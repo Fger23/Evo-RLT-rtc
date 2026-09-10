@@ -370,7 +370,11 @@ class LeRobotDatasetMetadata:
                 else self.writer.where
             )
 
-            if Path(latest_path).exists():
+            if self.writer is None and not self.metadata_buffer:
+                # A closed parquet file cannot be appended to. Opening another
+                # writer at the same path would discard the saved episodes.
+                chunk_idx, file_idx = update_chunk_file_indices(chunk_idx, file_idx, self.chunks_size)
+            elif Path(latest_path).exists():
                 latest_size_in_mb = get_file_size_in_mb(Path(latest_path))
                 latest_num_frames = self.latest_episode["episode_index"][0]
 
@@ -1115,6 +1119,28 @@ class LeRobotDataset(torch.utils.data.Dataset):
         """
         self._close_writer()
         self.meta._close_writer()
+
+    def flush(self) -> None:
+        """Make saved episodes readable on disk while keeping recording available.
+
+        Call after ``save_episode()`` when recording must pause until the episode
+        is fully saved. This closes parquet footers and flushes episode metadata;
+        subsequent episodes use new parquet files so earlier rows are preserved.
+        The current unsaved episode buffer and image writer remain available.
+
+        Videos must already be encoded. Use ``batch_encoding_size=1`` for a
+        checkpoint after every episode. This does not provide a power-loss-safe
+        transaction across the dataset's multiple files.
+        """
+        if self.meta.video_keys and self.episodes_since_last_encoding:
+            raise ValueError("Cannot flush pending videos; use batch_encoding_size=1 for per-episode saves.")
+        self._wait_image_writer()
+        self._close_writer()
+        if self.latest_episode is not None:
+            self._writer_closed_for_reading = True
+        self.meta._close_writer()
+        if self.meta.total_episodes:
+            self.meta.episodes = load_episodes(self.root)
 
     def create_episode_buffer(self, episode_index: int | None = None) -> dict:
         current_ep_idx = self.meta.total_episodes if episode_index is None else episode_index

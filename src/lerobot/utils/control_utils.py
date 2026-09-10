@@ -100,16 +100,47 @@ class _KeyboardEventHandler:
 
     def _handle_key(self, key: str):
         normalized = key.lower() if len(key) == 1 else key
+        if normalized == "ESC":
+            print("Escape key pressed. Stopping data recording...")
+            self.events["stop_recording"] = True
+            self.events["exit_early"] = True
+            return
+
+        # Only the RLT recorder sets this phase. Other recording entry points
+        # retain their existing controls and automatic episode transitions.
+        if "rlt_phase" in self.events:
+            if self.events.get("stop_recording"):
+                return
+            phase = self.events["rlt_phase"]
+            if phase != "recording":
+                if phase == "failure_ack_wait" and normalized == self.episode_failure_key:
+                    print("Failure acknowledged. Press 'r' to reset the robot.")
+                    self.events["rlt_phase"] = "failed_wait"
+                elif phase == "failed_wait" and normalized == "r":
+                    print("'r' key pressed. Requesting robot reset...")
+                    self.events["rlt_phase"] = "resetting"
+                    self.events["rlt_reset_requested"] = True
+                elif phase in {"success_wait", "ready_wait"} and normalized == "t":
+                    print("'t' key pressed. Requesting the next episode...")
+                    self.events["rlt_phase"] = "starting"
+                    self.events["rlt_start_requested"] = True
+                return
+            if normalized in {"r", "t"}:
+                return
+            if normalized in {"RIGHT", "LEFT"} or (
+                normalized != self.intervention_toggle_key
+                and normalized in {self.episode_success_key, self.episode_failure_key}
+            ):
+                # Latch before notifying the recording loop: repeated or
+                # conflicting keys cannot relabel an episode during its save.
+                self.events["rlt_phase"] = "saving"
+
         if normalized == "RIGHT":
             print("Right arrow key pressed. Exiting loop...")
             self.events["exit_early"] = True
         elif normalized == "LEFT":
             print("Left arrow key pressed. Exiting loop and rerecord the last episode...")
             self.events["rerecord_episode"] = True
-            self.events["exit_early"] = True
-        elif normalized == "ESC":
-            print("Escape key pressed. Stopping data recording...")
-            self.events["stop_recording"] = True
             self.events["exit_early"] = True
         elif normalized == self.intervention_toggle_key:
             now = time.monotonic()

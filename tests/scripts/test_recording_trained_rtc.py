@@ -201,21 +201,21 @@ def test_record_loop_stores_accepted_action_and_confirms_before_next_step(monkey
 
 
 def test_rlt_rollout_requires_labels_and_preserves_policy_provenance(monkeypatch):
-    from lerobot.scripts.lerobot_rlt_record import rlt_record
+    import draccus
 
-    cfg = SimpleNamespace(
-        remote_policy=SimpleNamespace(
-            enable=True, training_time_rtc=True, policy_type="rlt", pretrained_name_or_path="round_2"
-        ),
-        teleop=None,
-        collector_policy_id_policy=None,
-    )
-    monkeypatch.setattr("lerobot.scripts.lerobot_rlt_record.record", lambda cfg: cfg)
+    from lerobot.scripts.lerobot_rlt_record import RLTRecordConfig, rlt_record
+
+    cfg = draccus.parse(RLTRecordConfig, config_path="configs/rlt/windows_record.json", args=[])
+    cfg.remote_policy.policy_type = "rlt"
+    cfg.remote_policy.pretrained_name_or_path = "round_2"
+    monkeypatch.setattr("lerobot.scripts.lerobot_rlt_record.record_to_target", lambda cfg, recorder: cfg)
     configured = rlt_record.__wrapped__(cfg)
     assert configured.enable_episode_outcome_labeling and configured.require_episode_success_label
     assert configured.default_episode_success == "failure"
     assert configured.enable_collector_policy_id and configured.collector_policy_id_policy == "round_2"
     assert not configured.policy_sync_to_teleop
+    assert configured.dataset.video_encoding_batch_size == 1
+    assert configured._rlt_episode_controller.reset_duration_s == 5.0
 
 
 def test_reset_without_teleoperator_expires_without_sending_actions(monkeypatch):
