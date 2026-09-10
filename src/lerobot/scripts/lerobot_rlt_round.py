@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 DATA_ROOT = "/nfs/baiyuntian/assets/rlt_0909"
-MODEL_ROOT = "/nfs/baiyuntian/assets/models/banknote_rlt"
+MODEL_ROOT = "/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910"
 
 
 def write_json(path, value):

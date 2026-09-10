@@ -56,7 +56,7 @@
     "enable": true,
     "training_time_rtc": true,
     "policy_type": "pi05",
-    "pretrained_name_or_path": "/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model",
+    "pretrained_name_or_path": "/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model",
     "server_address": "10.61.5.3:8090",
     "policy_device": "cuda:6",
     "actions_per_chunk": 50,

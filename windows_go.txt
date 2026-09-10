@@ -134,8 +134,8 @@ conda activate evo-rl
 export PYTHONPATH="$PWD/src"
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=5
-BASE=/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model
-RLT=/nfs/baiyuntian/assets/models/banknote_rlt
+BASE=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model
+RLT=/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910
 TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
 
 本节示例用GPU5训练；请按实际空闲GPU调整，避开当前推理使用的卡。
@@ -153,7 +153,7 @@ python -m lerobot.scripts.lerobot_rlt_train token --cache "$RLT/cache_initial" -
 python -m lerobot.scripts.lerobot_rlt_train ac --cache "$RLT/cache_initial" --token-checkpoint "$RLT/token/token.pt" --output "$RLT/round_1" --steps 5000 --residual-scale 0.1 --device cuda
 
 其他参数沿用脚本默认值，与原详细命令一致。
-训练结果是/nfs/baiyuntian/assets/models/banknote_rlt/round_1，不要再追加pretrained_model。
+训练结果是/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910/round_1，不要再追加pretrained_model。
 
 七、Windows：换成round_1，再采集20条
 ------------------------------------------------------------
@@ -164,7 +164,7 @@ notepad .\configs\rlt\windows_record.json
 dataset.repo_id → local/banknote_round_1
 dataset.root → D:/byt/rlt_datasets/banknote_round_1
 remote_policy.policy_type → rlt
-remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/banknote_rlt/round_1
+remote_policy.pretrained_name_or_path → /nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910/round_1
 
 保存后，执行同一条采集命令。确认旧采集已退出，终端A的服务仍在运行：
 python -m lerobot.scripts.lerobot_rlt_record --config_path=configs/rlt/windows_record.json
@@ -221,11 +221,13 @@ $InferGpu = 7
 $TrainGpu = 5
 $ServerPython = '/home/baiyuntian/miniforge3/envs/evo-rl/bin/python'
 $ServerDataRoot = '/nfs/baiyuntian/assets/rlt_0909'
-$ModelRoot = '/nfs/baiyuntian/assets/models/banknote_rlt'
-$BasePolicy = '/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model'
+$ModelRoot = '/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910'
+$BasePolicy = '/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model'
 ssh -p 2222 baiyuntian@10.61.5.3 nvidia-smi
 
 InferGpu是推理用的物理卡号，TrainGpu是训练用的物理卡号，按实际占用修改。
+基础检查点last下面的pretrained_model才包含模型配置和权重，BasePolicy需保留这一层。
+ModelRoot用于保存本次RLT的缓存、token、各轮模型和训练日志，当前为新模型目录下的rlt0910。
 推理服务会保留已加载的模型，训练请选择其他空闲卡。
 第一次从Round=0开始；已有前几轮结果时，填写要继续采集的轮次。
 第7步会把Round加1，之后回到第2步，不要再次把Round设回0。
@@ -333,8 +335,8 @@ FAILED：数据校验或训练失败；查看error和最近日志，先修复再
 NOT_STARTED：本轮还没有启动任务。
 不要仅凭GPU利用率为0、进程消失、某个中间checkpoint目录出现来判断完成。
 可另开PowerShell窗口查询；重新填写相同的Round、ServerPython和ModelRoot即可。
-完整日志位于：/nfs/baiyuntian/assets/models/banknote_rlt/jobs/from_round_N/train.log
-模型位于：/nfs/baiyuntian/assets/models/banknote_rlt/round_(N+1)
+完整日志位于：/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910/jobs/from_round_N/train.log
+模型位于：/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910/round_(N+1)
 失败后保留jobs日志及缓存/检查点，根据日志处理恢复；不要增加Round跳过失败轮次。
 
 7. 确认DONE后进入下一轮采集

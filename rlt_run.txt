@@ -47,9 +47,9 @@ pip install -e ".[async,feetech,intelrealsense]"
 # 下列每个终端都应处于本库根目录，并设置：
 export PYTHONPATH="$PWD/src"
 export TASK="Pick up the banknotes from the desktop, straighten them out, and then place them into the banknote binding machine."
-export BASE_POLICY="/nfs/baiyuntian/assets/models/banknote_binding_iteration_1_pi05_trc_d37_20260903_184214/checkpoints/last/pretrained_model"
+export BASE_POLICY="/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/checkpoints/last/pretrained_model"
 export RTC_SERVER_IP="10.61.5.3"
-export RLT_ROOT="/nfs/baiyuntian/assets/models/banknote_rlt"
+export RLT_ROOT="/nfs/baiyuntian/assets/models/training_rtc/20260907_095006_banknote_binding_pi05_trc_d37/rlt0910"
 
 # BASE_POLICY 在 H200 上必须可访问且包含 config.json / model.safetensors /
 # policy_preprocessor.json / policy_postprocessor.json 与对应 processor 统计文件。
