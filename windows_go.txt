@@ -102,9 +102,13 @@ python -m lerobot.scripts.lerobot_rlt_record `
     --dataset.fps=30 `
     --remote_policy.actions_per_chunk=50 `
     --remote_policy.rtc_prefix_steps=21 `
+    --remote_policy.chunk_size_threshold=0.7 `
     --remote_policy.policy_device=cuda:6
 
-以上7个参数覆盖JSON中的同名配置，其余参数继续读取JSON。
+以上8个参数覆盖JSON中的同名配置，其余参数继续读取JSON。
+rtc_prefix_steps=21表示保留21步RTC动作前缀。
+chunk_size_threshold=0.7表示剩余动作队列降至整块的70%及以下时，且无请求在途，发起下一次预测。
+H=50时70%对应剩余35步；这里填写0.7，不是70，也不是已执行70%。
 例如改用物理GPU7，只把最后一行改为--remote_policy.policy_device=cuda:7。
 PowerShell每行末尾的反引号后不要加空格；最后一行不加反引号。
 
@@ -251,11 +255,15 @@ python -m lerobot.scripts.lerobot_rlt_record `
     --dataset.fps=30 `
     --remote_policy.actions_per_chunk=50 `
     --remote_policy.rtc_prefix_steps=21 `
+    --remote_policy.chunk_size_threshold=0.7 `
     --remote_policy.policy_device="cuda:$InferGpu"
 if ($LASTEXITCODE -ne 0) { throw '采集报错，请先检查采集日志' }
 
-在原来的7个采集参数之外，这里显式指定数据repo_id、保存目录、模型类型和模型路径，
+在8个采集参数之外，这里显式指定数据repo_id、保存目录、模型类型和模型路径，
 确保banknote_round_N确实由对应模型采集；机械臂、相机等继续读取JSON。
+RTC前缀长度在--remote_policy.rtc_prefix_steps中填写，当前为21步。
+提前请求比例在--remote_policy.chunk_size_threshold中填写，0.7代表剩余70%（H=50时为35步）。
+比例须在0和1之间，且floor(H*比例)不少于前缀长度；当前21步前缀配0.7符合要求。
 执行后自动开始，不需要按开始键。PowerShell保持前台，英文输入法，轻按一次，无需回车：
 s：成功并结束本条；f：失败并结束本条；120秒超时默认失败。
 Esc：结束整次采集并收尾保存；当前条未标记时按失败处理。
@@ -264,6 +272,7 @@ Esc：结束整次采集并收尾保存；当前条未标记时按失败处理�
 整理好后可按右方向键提前结束等待；否则等待时间结束后自动进入下一条。
 20条是成功和失败的总数。等程序退出、视频保存完成后再执行第3步。
 H=50、d=21和30fps与后面的缓存/训练一致，进入这个闭环后保持一致。
+修改请求比例不改变训练前缀；修改前缀长度则需要同步调整缓存/训练，后续RLT模型要求与训练前缀一致。
 
 3. 验证采集完整性，生成上传校验文件
 ------------------------------------------------------------
