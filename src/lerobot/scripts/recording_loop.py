@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import numpy as np
 
+from lerobot.cameras.camera import CameraFrameTimeoutError
 from lerobot.datasets.image_writer import safe_stop_image_writer
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
@@ -44,6 +45,7 @@ from lerobot.scripts.recording_hil import (
     _predict_policy_action_with_acp_inference,
 )
 from lerobot.scripts.recording_remote_policy import RemotePolicyActionClient
+from lerobot.scripts.recording_rlt_control import read_observation_with_camera_recovery
 from lerobot.teleoperators import Teleoperator, koch_leader, omx_leader, so_leader
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
 from lerobot.utils.constants import ACTION, OBS_STR
@@ -300,7 +302,14 @@ def record_loop(
 
         # Get robot observation
         try:
-            obs = robot.get_observation()
+            if "rlt_phase" in events:
+                obs = read_observation_with_camera_recovery(
+                    robot, remote_policy_client, teleop, events, communication_retry_timeout_s
+                )
+                if obs is None:
+                    break
+            else:
+                obs = robot.get_observation()
         except (TimeoutError, ConnectionError):
             if "rlt_phase" in events and events["exit_early"]:
                 break
@@ -325,6 +334,24 @@ def record_loop(
                         task=single_task,
                         timestep=step_idx,
                     )
+                except CameraFrameTimeoutError as error:
+                    if "rlt_phase" not in events:
+                        raise
+                    recovered = read_observation_with_camera_recovery(
+                        robot,
+                        remote_policy_client,
+                        teleop,
+                        events,
+                        communication_retry_timeout_s,
+                        initial_error=error,
+                    )
+                    if recovered is None:
+                        break
+                    # RTC's internal queue-underrun recapture can time out too.
+                    # Restart the complete loop, without a frame or confirmation
+                    # for the interrupted policy call.
+                    timestamp = time.perf_counter() - start_episode_t
+                    continue
                 except (TimeoutError, ConnectionError, RuntimeError):
                     if "rlt_phase" in events and events["exit_early"]:
                         break

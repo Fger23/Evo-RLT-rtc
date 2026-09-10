@@ -4,6 +4,80 @@ import logging
 import math
 import time
 
+from lerobot.cameras.camera import CameraFrameTimeoutError
+
+
+def read_observation_with_camera_recovery(
+    robot, remote_policy_client, teleop, events, timeout_s=2.0, *, initial_error=None
+):
+    """Pause on frame starvation, then restart RTC using post-reset camera data.
+
+    Return None when the operator stops the episode. Only CameraFrameTimeoutError
+    enters recovery; motor, disconnected-camera and other failures propagate.
+    No synthetic frames or policy commands are produced during recovery.
+    """
+
+    def stopped():
+        return events.get("exit_early", False) or events.get("stop_recording", False)
+
+    if stopped():
+        return None
+    error = initial_error
+    if error is None:
+        try:
+            observation = robot.get_observation()
+            return None if stopped() else observation
+        except CameraFrameTimeoutError as caught:
+            error = caught
+    if stopped():
+        return None
+    if timeout_s <= 0:
+        raise error
+    deadline = time.perf_counter() + timeout_s
+    logging.warning(
+        "RLT_CAMERA_WAIT: %s. Holding pose and retrying fresh frames for %.1fs.", error, timeout_s
+    )
+    remote_policy_client.suspend()
+    RLTManualEpisodeController.hold_current_pose(robot, teleop)
+    while time.perf_counter() < deadline:
+        if stopped():
+            return None
+        try:
+            # Probe availability only. This snapshot must not reach the policy:
+            # reset() can take time while it drains an earlier in-flight RPC.
+            robot.get_observation()
+        except CameraFrameTimeoutError as caught:
+            error = caught
+            if stopped():
+                return None
+            time.sleep(min(0.05, max(0.0, deadline - time.perf_counter())))
+            continue
+        if stopped():
+            return None
+        try:
+            remote_policy_client.reset()
+        except Exception:
+            if stopped():
+                return None
+            raise
+        if stopped():
+            return None
+        try:
+            observation = robot.get_observation()
+        except CameraFrameTimeoutError as caught:
+            error = caught
+            remote_policy_client.suspend()
+            continue
+        if stopped():
+            return None
+        logging.info("RLT_CAMERA_RECOVERED: fresh observation acquired; old RTC actions discarded.")
+        return observation
+    if stopped():
+        return None
+    raise CameraFrameTimeoutError(
+        f"Camera did not recover within the {timeout_s:.1f}s retry window: {error}"
+    ) from error
+
 
 def read_joint_positions(robot):
     """Read follower joints directly; paused/reset control must not depend on cameras."""

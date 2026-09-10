@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lerobot.cameras.camera import CameraFrameTimeoutError
 from lerobot.robots.so_follower import (
     SO100Follower,
     SO100FollowerConfig,
@@ -97,6 +98,33 @@ def test_get_observation(follower):
 
     for idx, motor in enumerate(follower.bus.motors, 1):
         assert obs[f"{motor}.pos"] == idx
+
+
+def test_camera_timeout_is_distinct_from_motor_timeout(follower):
+    follower.connect()
+    camera = MagicMock()
+    camera.async_read.side_effect = TimeoutError("no fresh frame in 200ms")
+    follower.cameras = {"fixed": camera}
+    with pytest.raises(CameraFrameTimeoutError, match="fixed.*200ms"):
+        follower.get_observation()
+
+    camera.async_read.reset_mock()
+    motor_error = TimeoutError("motor read timed out")
+    follower.bus.sync_read.side_effect = motor_error
+    with pytest.raises(TimeoutError) as raised:
+        follower.get_observation()
+    assert raised.value is motor_error
+    assert not isinstance(raised.value, CameraFrameTimeoutError)
+    camera.async_read.assert_not_called()
+
+
+def test_dead_camera_thread_is_not_a_recoverable_frame_timeout(follower):
+    follower.connect()
+    camera = MagicMock()
+    camera.async_read.side_effect = RuntimeError("read thread is not running")
+    follower.cameras = {"fixed": camera}
+    with pytest.raises(RuntimeError, match="read thread"):
+        follower.get_observation()
 
 
 def test_send_action(follower):

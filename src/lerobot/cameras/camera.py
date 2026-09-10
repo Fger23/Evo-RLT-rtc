@@ -23,6 +23,10 @@ from numpy.typing import NDArray  # type: ignore  # TODO: add type stubs for num
 from .configs import CameraConfig
 
 
+class CameraFrameTimeoutError(TimeoutError):
+    """A connected camera did not provide a fresh frame within its read timeout."""
+
+
 class Camera(abc.ABC):
     """Base class for camera implementations.
 

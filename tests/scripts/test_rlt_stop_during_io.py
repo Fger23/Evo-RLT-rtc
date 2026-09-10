@@ -1,11 +1,12 @@
 """Interrupted RLT I/O must preserve buffered frames without dispatching stale actions."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import numpy as np
 import pytest
 
+from lerobot.cameras.camera import CameraFrameTimeoutError
 from lerobot.scripts import recording_loop
 from lerobot.utils.control_utils import _KeyboardEventHandler
 
@@ -203,3 +204,92 @@ def test_key_latched_before_record_loop_does_not_reset_or_start_remote_inference
     capture.robot.get_observation.assert_not_called()
     capture.robot.send_action.assert_not_called()
     capture.client.confirm_action_executed.assert_not_called()
+
+
+@pytest.mark.parametrize("stage", ["observation", "rpc"])
+def test_camera_recovery_resumes_with_fresh_observation_without_a_failed_frame(capture, stage):
+    operations = []
+    capture.robot.bus = SimpleNamespace(sync_read=Mock(return_value={"joint": 7.0}))
+    capture.client.suspend = Mock(side_effect=lambda: operations.append("suspend"))
+    capture.client.reset.side_effect = lambda: operations.append("reset")
+    observation_calls = 0
+    action_calls = 0
+
+    def observation():
+        nonlocal observation_calls
+        observation_calls += 1
+        if observation_calls == 1:
+            operations.append("initial_observation")
+            if stage == "observation":
+                raise CameraFrameTimeoutError("camera missed a frame")
+            return {"joint.pos": 1.0}
+        if observation_calls == 2:
+            operations.append("probe")
+            assert capture.client.reset.call_count == 1
+            return {"joint.pos": 11.0}  # Before RTC drain; must never reach policy or data.
+        operations.append("fresh_observation")
+        assert capture.client.reset.call_count == 2
+        return {"joint.pos": float(9 + observation_calls)}
+
+    def action(*, observation, task, timestep):
+        nonlocal action_calls
+        action_calls += 1
+        assert timestep == 0  # The interrupted action must not consume a recorded step.
+        if stage == "rpc" and action_calls == 1:
+            assert observation == {"joint.pos": 1.0}
+            operations.append("internal_camera_timeout")
+            raise CameraFrameTimeoutError("RTC queue refill camera missed a frame")
+        assert observation == {"joint.pos": 12.0 if stage == "observation" else 13.0}
+        operations.append("policy")
+        return {"joint.pos": 22.0}
+
+    def dispatch(action):
+        operations.append("hold" if action == {"joint.pos": 7.0} else "dispatch")
+        return dict(action)
+
+    def save(frame):
+        capture.frames.append(frame)
+        capture.press("f")  # End after one accepted frame without another observation/read.
+
+    capture.robot.get_observation.side_effect = observation
+    capture.robot.send_action.side_effect = dispatch
+    capture.client.get_action.side_effect = action
+    capture.dataset.add_frame = save
+    capture.run()
+
+    assert operations[:2] == ["reset", "initial_observation"]
+    recovery_start = operations.index("suspend")
+    assert operations[recovery_start : recovery_start + 5] == [
+        "suspend",
+        "hold",
+        "probe",
+        "reset",
+        "fresh_observation",
+    ]
+    assert operations[-2:] == ["policy", "dispatch"]
+    capture.client.suspend.assert_called_once()
+    capture.robot.bus.sync_read.assert_called_once_with("Present_Position")
+    assert capture.robot.send_action.call_args_list == [call({"joint.pos": 7.0}), call({"joint.pos": 22.0})]
+    capture.client.confirm_action_executed.assert_called_once_with({"joint.pos": 22.0})
+    assert capture.client.get_action.call_count == (1 if stage == "observation" else 2)
+    assert len(capture.frames) == 1
+    np.testing.assert_array_equal(capture.frames[0]["action"], [22.0])
+    np.testing.assert_array_equal(
+        capture.frames[0]["observation.state"], [12.0 if stage == "observation" else 13.0]
+    )
+    assert capture.events["episode_outcome"] == "failure"
+    capture.dataset.image_writer.stop.assert_not_called()
+
+
+@pytest.mark.parametrize("stage", ["observation", "rpc"])
+def test_camera_timeout_outside_rlt_does_not_enable_recovery(capture, stage):
+    del capture.events["rlt_phase"]
+    capture.client.suspend = Mock()
+    target = capture.robot.get_observation if stage == "observation" else capture.client.get_action
+    target.side_effect = CameraFrameTimeoutError("camera missed a frame")
+    with pytest.raises(CameraFrameTimeoutError, match="camera missed a frame"):
+        capture.run()
+    capture.client.suspend.assert_not_called()
+    capture.robot.send_action.assert_not_called()
+    capture.client.confirm_action_executed.assert_not_called()
+    assert capture.frames == []

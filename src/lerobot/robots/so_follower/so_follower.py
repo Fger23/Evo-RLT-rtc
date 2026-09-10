@@ -19,6 +19,7 @@ import time
 from functools import cached_property
 from typing import TypeAlias
 
+from lerobot.cameras.camera import CameraFrameTimeoutError
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
 from lerobot.motors.feetech import (
@@ -187,7 +188,12 @@ class SOFollower(Robot):
         # Capture images from cameras
         for cam_key, cam in self.cameras.items():
             start = time.perf_counter()
-            obs_dict[cam_key] = cam.async_read()
+            try:
+                obs_dict[cam_key] = cam.async_read()
+            except TimeoutError as error:
+                # Keep frame starvation distinct from motor/RPC timeouts so
+                # the RLT recorder can recover only the camera failure.
+                raise CameraFrameTimeoutError(f"{cam_key}: {error}") from error
             dt_ms = (time.perf_counter() - start) * 1e3
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
